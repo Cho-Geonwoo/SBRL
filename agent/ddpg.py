@@ -16,11 +16,16 @@ class Encoder(nn.Module):
         assert len(obs_shape) == 3
         self.repr_dim = 32 * 35 * 35
 
-        self.convnet = nn.Sequential(nn.Conv2d(obs_shape[0], 32, 3, stride=2),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU())
+        self.convnet = nn.Sequential(
+            nn.Conv2d(obs_shape[0], 32, 3, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3, stride=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3, stride=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, 3, stride=1),
+            nn.ReLU(),
+        )
 
         self.apply(utils.weight_init)
 
@@ -35,22 +40,17 @@ class Actor(nn.Module):
     def __init__(self, obs_type, obs_dim, action_dim, feature_dim, hidden_dim):
         super().__init__()
 
-        feature_dim = feature_dim if obs_type == 'pixels' else hidden_dim
+        feature_dim = feature_dim if obs_type == "pixels" else hidden_dim
 
-        self.trunk = nn.Sequential(nn.Linear(obs_dim, feature_dim),
-                                   nn.LayerNorm(feature_dim), nn.Tanh())
+        self.trunk = nn.Sequential(
+            nn.Linear(obs_dim, feature_dim), nn.LayerNorm(feature_dim), nn.Tanh()
+        )
 
         policy_layers = []
-        policy_layers += [
-            nn.Linear(feature_dim, hidden_dim),
-            nn.ReLU(inplace=True)
-        ]
+        policy_layers += [nn.Linear(feature_dim, hidden_dim), nn.ReLU(inplace=True)]
         # add additional hidden layer for pixels
-        if obs_type == 'pixels':
-            policy_layers += [
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.ReLU(inplace=True)
-            ]
+        if obs_type == "pixels":
+            policy_layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True)]
         policy_layers += [nn.Linear(hidden_dim, action_dim)]
 
         self.policy = nn.Sequential(*policy_layers)
@@ -74,29 +74,26 @@ class Critic(nn.Module):
 
         self.obs_type = obs_type
 
-        if obs_type == 'pixels':
+        if obs_type == "pixels":
             # for pixels actions will be added after trunk
-            self.trunk = nn.Sequential(nn.Linear(obs_dim, feature_dim),
-                                       nn.LayerNorm(feature_dim), nn.Tanh())
+            self.trunk = nn.Sequential(
+                nn.Linear(obs_dim, feature_dim), nn.LayerNorm(feature_dim), nn.Tanh()
+            )
             trunk_dim = feature_dim + action_dim
         else:
             # for states actions come in the beginning
             self.trunk = nn.Sequential(
                 nn.Linear(obs_dim + action_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim), nn.Tanh())
+                nn.LayerNorm(hidden_dim),
+                nn.Tanh(),
+            )
             trunk_dim = hidden_dim
 
         def make_q():
             q_layers = []
-            q_layers += [
-                nn.Linear(trunk_dim, hidden_dim),
-                nn.ReLU(inplace=True)
-            ]
-            if obs_type == 'pixels':
-                q_layers += [
-                    nn.Linear(hidden_dim, hidden_dim),
-                    nn.ReLU(inplace=True)
-                ]
+            q_layers += [nn.Linear(trunk_dim, hidden_dim), nn.ReLU(inplace=True)]
+            if obs_type == "pixels":
+                q_layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True)]
             q_layers += [nn.Linear(hidden_dim, 1)]
             return nn.Sequential(*q_layers)
 
@@ -106,10 +103,9 @@ class Critic(nn.Module):
         self.apply(utils.weight_init)
 
     def forward(self, obs, action):
-        inpt = obs if self.obs_type == 'pixels' else torch.cat([obs, action],
-                                                               dim=-1)
+        inpt = obs if self.obs_type == "pixels" else torch.cat([obs, action], dim=-1)
         h = self.trunk(inpt)
-        h = torch.cat([h, action], dim=-1) if self.obs_type == 'pixels' else h
+        h = torch.cat([h, action], dim=-1) if self.obs_type == "pixels" else h
 
         q1 = self.Q1(h)
         q2 = self.Q2(h)
@@ -118,27 +114,29 @@ class Critic(nn.Module):
 
 
 class DDPGAgent:
-    def __init__(self,
-                 name,
-                 reward_free,
-                 obs_type,
-                 obs_shape,
-                 action_shape,
-                 device,
-                 lr,
-                 feature_dim,
-                 hidden_dim,
-                 critic_target_tau,
-                 num_expl_steps,
-                 update_every_steps,
-                 stddev_schedule,
-                 nstep,
-                 batch_size,
-                 stddev_clip,
-                 init_critic,
-                 use_tb,
-                 use_wandb,
-                 meta_dim=0):
+    def __init__(
+        self,
+        name,
+        reward_free,
+        obs_type,
+        obs_shape,
+        action_shape,
+        device,
+        lr,
+        feature_dim,
+        hidden_dim,
+        critic_target_tau,
+        num_expl_steps,
+        update_every_steps,
+        stddev_schedule,
+        nstep,
+        batch_size,
+        stddev_clip,
+        init_critic,
+        use_tb,
+        use_wandb,
+        meta_dim=0,
+    ):
         self.reward_free = reward_free
         self.obs_type = obs_type
         self.obs_shape = obs_shape
@@ -158,7 +156,7 @@ class DDPGAgent:
         self.solved_meta = None
 
         # models
-        if obs_type == 'pixels':
+        if obs_type == "pixels":
             self.aug = utils.RandomShiftsAug(pad=4)
             self.encoder = Encoder(obs_shape).to(device)
             self.obs_dim = self.encoder.repr_dim + meta_dim
@@ -167,20 +165,22 @@ class DDPGAgent:
             self.encoder = nn.Identity()
             self.obs_dim = obs_shape[0] + meta_dim
 
-        self.actor = Actor(obs_type, self.obs_dim, self.action_dim,
-                           feature_dim, hidden_dim).to(device)
+        self.actor = Actor(
+            obs_type, self.obs_dim, self.action_dim, feature_dim, hidden_dim
+        ).to(device)
 
-        self.critic = Critic(obs_type, self.obs_dim, self.action_dim,
-                             feature_dim, hidden_dim).to(device)
-        self.critic_target = Critic(obs_type, self.obs_dim, self.action_dim,
-                                    feature_dim, hidden_dim).to(device)
+        self.critic = Critic(
+            obs_type, self.obs_dim, self.action_dim, feature_dim, hidden_dim
+        ).to(device)
+        self.critic_target = Critic(
+            obs_type, self.obs_dim, self.action_dim, feature_dim, hidden_dim
+        ).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # optimizers
 
-        if obs_type == 'pixels':
-            self.encoder_opt = torch.optim.Adam(self.encoder.parameters(),
-                                                lr=lr)
+        if obs_type == "pixels":
+            self.encoder_opt = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         else:
             self.encoder_opt = None
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
@@ -219,7 +219,7 @@ class DDPGAgent:
             value = torch.as_tensor(value, device=self.device).unsqueeze(0)
             inputs.append(value)
         inpt = torch.cat(inputs, dim=-1)
-        #assert obs.shape[-1] == self.obs_shape[-1]
+        # assert obs.shape[-1] == self.obs_shape[-1]
         stddev = utils.schedule(self.stddev_schedule, step)
         dist = self.actor(inpt, stddev)
         if eval_mode:
@@ -245,10 +245,10 @@ class DDPGAgent:
         critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q)
 
         if self.use_tb or self.use_wandb:
-            metrics['critic_target_q'] = target_Q.mean().item()
-            metrics['critic_q1'] = Q1.mean().item()
-            metrics['critic_q2'] = Q2.mean().item()
-            metrics['critic_loss'] = critic_loss.item()
+            metrics["critic_target_q"] = target_Q.mean().item()
+            metrics["critic_q1"] = Q1.mean().item()
+            metrics["critic_q2"] = Q2.mean().item()
+            metrics["critic_loss"] = critic_loss.item()
 
         # optimize critic
         if self.encoder_opt is not None:
@@ -278,9 +278,9 @@ class DDPGAgent:
         self.actor_opt.step()
 
         if self.use_tb or self.use_wandb:
-            metrics['actor_loss'] = actor_loss.item()
-            metrics['actor_logprob'] = log_prob.mean().item()
-            metrics['actor_ent'] = dist.entropy().sum(dim=-1).mean().item()
+            metrics["actor_loss"] = actor_loss.item()
+            metrics["actor_logprob"] = log_prob.mean().item()
+            metrics["actor_ent"] = dist.entropy().sum(dim=-1).mean().item()
 
         return metrics
 
@@ -290,14 +290,13 @@ class DDPGAgent:
 
     def update(self, replay_iter, step):
         metrics = dict()
-        #import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
 
         if step % self.update_every_steps != 0:
             return metrics
 
         batch = next(replay_iter)
-        obs, action, reward, discount, next_obs = utils.to_torch(
-            batch, self.device)
+        obs, action, reward, discount, next_obs = utils.to_torch(batch, self.device)
 
         # augment and encode
         obs = self.aug_and_encode(obs)
@@ -305,17 +304,19 @@ class DDPGAgent:
             next_obs = self.aug_and_encode(next_obs)
 
         if self.use_tb or self.use_wandb:
-            metrics['batch_reward'] = reward.mean().item()
+            metrics["batch_reward"] = reward.mean().item()
 
         # update critic
         metrics.update(
-            self.update_critic(obs, action, reward, discount, next_obs, step))
+            self.update_critic(obs, action, reward, discount, next_obs, step)
+        )
 
         # update actor
         metrics.update(self.update_actor(obs.detach(), step))
 
         # update critic target
-        utils.soft_update_params(self.critic, self.critic_target,
-                                 self.critic_target_tau)
+        utils.soft_update_params(
+            self.critic, self.critic_target, self.critic_target_tau
+        )
 
         return metrics
