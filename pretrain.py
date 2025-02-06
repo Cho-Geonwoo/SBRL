@@ -4,8 +4,8 @@ warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 import os
 
-os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
-os.environ['MUJOCO_GL'] = 'egl'
+# os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
+# os.environ['MUJOCO_GL'] = 'egl'
 
 from pathlib import Path
 
@@ -19,7 +19,7 @@ import dmc
 import utils
 from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
-from video import TrainVideoRecorder, VideoRecorder
+# from video import TrainVideoRecorder, VideoRecorder
 
 torch.backends.cudnn.benchmark = True
 
@@ -49,6 +49,7 @@ class Workspace:
                 cfg.experiment, cfg.agent.name, cfg.domain, cfg.obs_type,
                 str(cfg.seed)
             ])
+            wandb.login(key=cfg.wandb_key)
             wandb.init(project="urlb", group=cfg.agent.name, name=exp_name)
 
         self.logger = Logger(self.work_dir,
@@ -89,14 +90,14 @@ class Workspace:
         self._replay_iter = None
 
         # create video recorders
-        self.video_recorder = VideoRecorder(
-            self.work_dir if cfg.save_video else None,
-            camera_id=0 if 'quadruped' not in self.cfg.domain else 2,
-            use_wandb=self.cfg.use_wandb)
-        self.train_video_recorder = TrainVideoRecorder(
-            self.work_dir if cfg.save_train_video else None,
-            camera_id=0 if 'quadruped' not in self.cfg.domain else 2,
-            use_wandb=self.cfg.use_wandb)
+        # self.video_recorder = VideoRecorder(
+        #     self.work_dir if cfg.save_video else None,
+        #     camera_id=0 if 'quadruped' not in self.cfg.domain else 2,
+        #     use_wandb=self.cfg.use_wandb)
+        # self.train_video_recorder = TrainVideoRecorder(
+        #     self.work_dir if cfg.save_train_video else None,
+        #     camera_id=0 if 'quadruped' not in self.cfg.domain else 2,
+        #     use_wandb=self.cfg.use_wandb)
 
         self.timer = utils.Timer()
         self._global_step = 0
@@ -126,7 +127,7 @@ class Workspace:
         meta = self.agent.init_meta()
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
-            self.video_recorder.init(self.eval_env, enabled=(episode == 0))
+            # self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action = self.agent.act(time_step.observation,
@@ -134,12 +135,12 @@ class Workspace:
                                             self.global_step,
                                             eval_mode=True)
                 time_step = self.eval_env.step(action)
-                self.video_recorder.record(self.eval_env)
+                # self.video_recorder.record(self.eval_env)
                 total_reward += time_step.reward
                 step += 1
 
             episode += 1
-            self.video_recorder.save(f'{self.global_frame}.mp4')
+            # self.video_recorder.save(f'{self.global_frame}.mp4')
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
             log('episode_reward', total_reward / episode)
@@ -160,12 +161,12 @@ class Workspace:
         time_step = self.train_env.reset()
         meta = self.agent.init_meta()
         self.replay_storage.add(time_step, meta)
-        self.train_video_recorder.init(time_step.observation)
+        # self.train_video_recorder.init(time_step.observation)
         metrics = None
         while train_until_step(self.global_step):
             if time_step.last():
                 self._global_episode += 1
-                self.train_video_recorder.save(f'{self.global_frame}.mp4')
+                # self.train_video_recorder.save(f'{self.global_frame}.mp4')
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
@@ -185,7 +186,7 @@ class Workspace:
                 time_step = self.train_env.reset()
                 meta = self.agent.init_meta()
                 self.replay_storage.add(time_step, meta)
-                self.train_video_recorder.init(time_step.observation)
+                # self.train_video_recorder.init(time_step.observation)
                 # try to save snapshot
                 episode_step = 0
                 episode_reward = 0
@@ -214,7 +215,7 @@ class Workspace:
             time_step = self.train_env.step(action)
             episode_reward += time_step.reward
             self.replay_storage.add(time_step, meta)
-            self.train_video_recorder.record(time_step.observation)
+            # self.train_video_recorder.record(time_step.observation)
             episode_step += 1
             self._global_step += 1
 

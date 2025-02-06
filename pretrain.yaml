@@ -27,14 +27,14 @@ nstep: ${agent.nstep}
 update_encoder: true # should always be true for pre-training
 # misc
 seed: 1
-device: cuda
-save_video: true
+device: mps
+save_video: false
 save_train_video: false
 use_tb: false
 use_wandb: false
+wandb_key: 16b8bc4e30001451f7147c319e5d771897227a17
 # experiment
 experiment: exp
-
 
 hydra:
   run:
