@@ -373,7 +373,7 @@ class BECLAgent(DDPGAgent):
                 metrics.update(self.update_contrastive(next_obs, skill))
 
             if self.use_cic and self.update_rep:
-                self.update_cic(obs, skill, next_obs, step)
+                metrics.update(self.update_cic(obs, skill, next_obs, step))
 
             with torch.no_grad():
                 intr_reward = self.compute_intr_reward(skill, next_obs, metrics)
