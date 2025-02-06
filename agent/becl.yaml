@@ -26,6 +26,7 @@ update_encoder: ${update_encoder}
 # extra hyperparameter
 contrastive_update_rate: 3
 temperature: 0.5
+alpha: 0.01
 update_rep: true
 project_skill: true
 use_cic: true

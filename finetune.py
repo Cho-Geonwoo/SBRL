@@ -46,10 +46,10 @@ class Workspace:
         self.logger = Logger(self.work_dir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
         self.train_env = dmc.make(
-            cfg.task, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
+            cfg.domain, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
         )
         self.eval_env = dmc.make(
-            cfg.task, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
+            cfg.domain, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
         )
 
         # create agent

@@ -177,6 +177,7 @@ class BECLAgent(DDPGAgent):
         update_encoder,
         contrastive_update_rate,
         temperature,
+        alpha,
         skill,
         use_cic,
         project_skill,
@@ -188,6 +189,7 @@ class BECLAgent(DDPGAgent):
         self.update_encoder = update_encoder
         self.contrastive_update_rate = contrastive_update_rate
         self.temperature = temperature
+        self.alpha = alpha
         # specify skill in fine-tuning stage if needed
         self.skill = int(skill) if skill >= 0 else np.random.choice(self.skill_dim)
         self.use_cic = use_cic
@@ -381,7 +383,7 @@ class BECLAgent(DDPGAgent):
                 metrics["intr_reward"] = intr_reward.mean().item()
                 metrics["apt_reward"] = apt_reward.mean().item()
 
-            reward = intr_reward + apt_reward
+            reward = intr_reward + self.alpha * apt_reward
         else:
             batch = next(replay_iter)
 

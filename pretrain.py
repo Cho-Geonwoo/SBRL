@@ -24,7 +24,7 @@ from replay_buffer import ReplayBufferStorage, make_replay_loader
 
 torch.backends.cudnn.benchmark = True
 
-from dmc_benchmark import PRIMAL_TASKS
+from dmc_benchmark import TASKS
 
 
 def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
@@ -60,12 +60,13 @@ class Workspace:
 
         self.logger = Logger(self.work_dir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
-        task = PRIMAL_TASKS[self.cfg.domain]
+        assert self.cfg.domain in TASKS, f'{self.cfg.domain} not in {TASKS}'
+
         self.train_env = dmc.make(
-            task, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
+            self.cfg.domain, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
         )
         self.eval_env = dmc.make(
-            task, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
+            self.cfg.domain, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
         )
 
         # create agent
