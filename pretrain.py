@@ -207,8 +207,8 @@ class Workspace:
                 # try to save snapshot
                 episode_step = 0
                 episode_reward = 0
-            if self.global_frame in self.cfg.snapshots:
-                self.save_snapshot()
+                if self.global_frame in self.cfg.snapshots:
+                    self.save_snapshot()
             # try to evaluate
             if eval_every_step(self.global_step):
                 self.logger.log(
