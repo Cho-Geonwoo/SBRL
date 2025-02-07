@@ -4,8 +4,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import os
 
-os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
-os.environ['MUJOCO_GL'] = 'egl'
+os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
+os.environ["MUJOCO_GL"] = "egl"
 
 from pathlib import Path
 
@@ -60,7 +60,7 @@ class Workspace:
 
         self.logger = Logger(self.work_dir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
-        assert self.cfg.domain in TASKS, f'{self.cfg.domain} not in {TASKS}'
+        assert self.cfg.domain in TASKS, f"{self.cfg.domain} not in {TASKS}"
 
         self.train_env = dmc.make(
             self.cfg.domain, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
