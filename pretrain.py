@@ -16,6 +16,7 @@ import wandb
 from dm_env import specs
 
 import dmc
+import random
 import utils
 from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
@@ -41,6 +42,7 @@ class Workspace:
         print(f"workspace: {self.work_dir}")
 
         self.cfg = cfg
+        cfg.seed = random.randint(0, 100000)
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
 
@@ -205,10 +207,11 @@ class Workspace:
                 self.replay_storage.add(time_step, meta)
                 # self.train_video_recorder.init(time_step.observation)
                 # try to save snapshot
-                episode_step = 0
-                episode_reward = 0
                 if self.global_frame in self.cfg.snapshots:
                     self.save_snapshot()
+                episode_step = 0
+                episode_reward = 0
+
             # try to evaluate
             if eval_every_step(self.global_step):
                 self.logger.log(
@@ -227,6 +230,8 @@ class Workspace:
             if not seed_until_step(self.global_step):
                 metrics = self.agent.update(self.replay_iter, self.global_step)
                 self.logger.log_metrics(metrics, self.global_frame, ty="train")
+                if self.cfg.use_wandb:
+                    wandb.log(metrics)
 
             # take env step
             time_step = self.train_env.step(action)

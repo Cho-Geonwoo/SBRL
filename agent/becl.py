@@ -351,26 +351,29 @@ class BECLAgent(DDPGAgent):
         if step % self.update_every_steps != 0:
             return metrics
 
-        if self.reward_free:
 
-            batch = next(replay_iter)
-            obs, action, reward, discount, next_obs, skill = utils.to_torch(
-                batch, self.device
-            )
+        batch = next(replay_iter)
+
+        obs, action, extr_reward, discount, next_obs, skill = utils.to_torch(
+            batch, self.device
+        )
+
+        with torch.no_grad():
             obs = self.aug_and_encode(obs)
             next_obs = self.aug_and_encode(next_obs)
 
+        if self.reward_free:
             metrics.update(self.update_contrastive(next_obs, skill))
 
-            for _ in range(self.contrastive_update_rate - 1):
-                batch = next(replay_iter)
-                obs, action, reward, discount, next_obs, skill = utils.to_torch(
-                    batch, self.device
-                )
-                obs = self.aug_and_encode(obs)
-                next_obs = self.aug_and_encode(next_obs)
+            # for _ in range(self.contrastive_update_rate - 1):
+            #     batch = next(replay_iter)
+            #     obs, action, reward, discount, next_obs, skill = utils.to_torch(
+            #         batch, self.device
+            #     )
+            #     obs = self.aug_and_encode(obs)
+            #     next_obs = self.aug_and_encode(next_obs)
 
-                metrics.update(self.update_contrastive(next_obs, skill))
+            #     metrics.update(self.update_contrastive(next_obs, skill))
 
             if self.use_cic and self.update_rep:
                 metrics.update(self.update_cic(obs, skill, next_obs, step))
@@ -385,13 +388,6 @@ class BECLAgent(DDPGAgent):
 
             reward = intr_reward + self.alpha * apt_reward
         else:
-            batch = next(replay_iter)
-
-            obs, action, extr_reward, discount, next_obs, skill = utils.to_torch(
-                batch, self.device
-            )
-            obs = self.aug_and_encode(obs)
-            next_obs = self.aug_and_encode(next_obs)
             reward = extr_reward
 
         if self.use_tb or self.use_wandb:
