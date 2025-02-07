@@ -363,24 +363,26 @@ class SBRLAgent(DDPGAgent):
             next_obs = self.aug_and_encode(next_obs)
 
         if self.reward_free:
-            metrics.update(self.update_contrastive(next_obs, skill))
-
-            # for _ in range(self.contrastive_update_rate - 1):
-            #     batch = next(replay_iter)
-            #     obs, action, reward, discount, next_obs, skill = utils.to_torch(
-            #         batch, self.device
-            #     )
-            #     obs = self.aug_and_encode(obs)
-            #     next_obs = self.aug_and_encode(next_obs)
-
-            #     metrics.update(self.update_contrastive(next_obs, skill))
-
             if self.use_cic and self.update_rep:
                 metrics.update(self.update_cic(obs, skill, next_obs, step))
 
             with torch.no_grad():
-                intr_reward = self.compute_intr_reward(skill, next_obs, metrics)
                 apt_reward = self.compute_apt_reward(next_obs, next_obs)
+
+            metrics.update(self.update_contrastive(next_obs, skill))
+
+            for _ in range(self.contrastive_update_rate - 1):
+                batch = next(replay_iter)
+                obs, action, reward, discount, next_obs, skill = utils.to_torch(
+                    batch, self.device
+                )
+                obs = self.aug_and_encode(obs)
+                next_obs = self.aug_and_encode(next_obs)
+
+                metrics.update(self.update_contrastive(next_obs, skill))
+
+            with torch.no_grad():
+                intr_reward = self.compute_intr_reward(skill, next_obs, metrics)
 
             if self.use_tb or self.use_wandb:
                 metrics["intr_reward"] = intr_reward.mean().item()
