@@ -1,20 +1,20 @@
-This codebase is built on top of the [Unsupervised Reinforcement Learning Benchmark (URLB) codebase](https://github.com/rll-research/url_benchmark). Our method `BeCL` is implemented in `agents/becl.py` and the config is specified in `agents/becl.yaml`.
+This codebase is built on top of the [Unsupervised Reinforcement Learning Benchmark (URLB) codebase](https://github.com/rll-research/url_benchmark). Our method `SbRL` is implemented in `agents/sbrl.py` and the config is specified in `agents/sbrl.yaml`.
 
-To pre-train BeCL, run the following command:
+To pre-train SbRL, run the following command:
 
 ```sh
-python pretrain.py agent=becl domain=walker_stand seed=3
+python pretrain.py agent=sbrl domain=walker_stand seed=3
 ```
 
-This script will produce several agent snapshots after training for `100k`, `500k`, `1M`, and `2M` frames and snapshots will be stored in `./models/states/<domain>/<agent>/<seed>/ `. (i.e. the snapshots path is `./models/states/walker/becl/3/ `).
+This script will produce several agent snapshots after training for `100k`, `500k`, `1M`, and `2M` frames and snapshots will be stored in `./models/states/<domain>/<agent>/<seed>/ `. (i.e. the snapshots path is `./models/states/walker/sbrl/3/ `).
 
 To finetune SBRL, run the following command:
 
 ```sh
-python finetune.py domain=walker_stand obs_type=states agent=becl reward_free=false seed=3 domain=walker snapshot_ts=2000000
+python finetune.py domain=walker_stand obs_type=states agent=sbrl reward_free=false seed=3 domain=walker snapshot_ts=2000000
 ```
 
-This will load a snapshot stored in `./models/states/walker/becl/3/snapshot_2000000.pt`, initialize `DDPG` with it (both the actor and critic), and start training on `walker_stand` using the extrinsic reward of the task.
+This will load a snapshot stored in `./models/states/walker/sbrl/3/snapshot_2000000.pt`, initialize `DDPG` with it (both the actor and critic), and start training on `walker_stand` using the extrinsic reward of the task.
 
 ## Requirements
 

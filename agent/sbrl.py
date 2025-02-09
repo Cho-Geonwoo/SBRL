@@ -12,6 +12,7 @@ from dm_env import specs
 
 import utils
 from agent.ddpg import DDPGAgent
+from agent.ensemble_ddpg import EnsembleDDPGAgent
 
 
 class CIC(nn.Module):
@@ -169,7 +170,7 @@ class BECL(nn.Module):
         return features
 
 
-class SBRLAgent(DDPGAgent):
+class SBRLAgent(EnsembleDDPGAgent):
     def __init__(
         self,
         update_skill_every_step,
@@ -182,9 +183,11 @@ class SBRLAgent(DDPGAgent):
         use_cic,
         project_skill,
         update_rep,
+        ensemble_size,
         **kwargs
     ):
         self.skill_dim = skill_dim
+        self.ensemble_size = ensemble_size
         self.update_skill_every_step = update_skill_every_step
         self.update_encoder = update_encoder
         self.contrastive_update_rate = contrastive_update_rate
@@ -196,13 +199,14 @@ class SBRLAgent(DDPGAgent):
         self.update_rep = update_rep
         # increase obs shape to include skill dim
         kwargs["meta_dim"] = self.skill_dim
+        kwargs["ensemble_size"] = ensemble_size
         self.batch_size = kwargs["batch_size"]
         # create actor and critic
         super().__init__(**kwargs)
 
         # net
         self.becl = BECL(
-            self.obs_dim - self.skill_dim, self.skill_dim, kwargs["hidden_dim"]
+            self.obs_dim, self.skill_dim, kwargs["hidden_dim"]
         ).to(kwargs["device"])
 
         # optimizers
@@ -210,7 +214,7 @@ class SBRLAgent(DDPGAgent):
 
         if self.use_cic:
             self.cic = CIC(
-                self.obs_dim - skill_dim, skill_dim, kwargs["hidden_dim"], project_skill
+                self.obs_dim, skill_dim, kwargs["hidden_dim"], project_skill
             ).to(kwargs["device"])
 
             # optimizers
@@ -232,6 +236,12 @@ class SBRLAgent(DDPGAgent):
         meta = OrderedDict()
         meta["skill"] = skill
         return meta
+
+    def create_mask_matrix(self, cluster_index):
+        matrix = np.zeros((self.ensemble_size, int(self.batch_size)), dtype=np.float32)
+        matrix[cluster_index] = 1.0
+
+        return torch.from_numpy(matrix).unsqueeze(-1).to(self.device)
 
     def update_meta(self, meta, global_step, time_step, finetune=False):
         if global_step % self.update_skill_every_step == 0:
@@ -351,7 +361,6 @@ class SBRLAgent(DDPGAgent):
         if step % self.update_every_steps != 0:
             return metrics
 
-
         batch = next(replay_iter)
 
         obs, action, extr_reward, discount, next_obs, skill = utils.to_torch(
@@ -364,16 +373,6 @@ class SBRLAgent(DDPGAgent):
 
         if self.reward_free:
             metrics.update(self.update_contrastive(next_obs, skill))
-
-            # for _ in range(self.contrastive_update_rate - 1):
-            #     batch = next(replay_iter)
-            #     obs, action, reward, discount, next_obs, skill = utils.to_torch(
-            #         batch, self.device
-            #     )
-            #     obs = self.aug_and_encode(obs)
-            #     next_obs = self.aug_and_encode(next_obs)
-
-            #     metrics.update(self.update_contrastive(next_obs, skill))
 
             if self.use_cic and self.update_rep:
                 metrics.update(self.update_cic(obs, skill, next_obs, step))
@@ -398,18 +397,27 @@ class SBRLAgent(DDPGAgent):
             next_obs = next_obs.detach()
 
         # extend observations with skill
-        obs = torch.cat([obs, skill], dim=1)
-        next_obs = torch.cat([next_obs, skill], dim=1)
+        # obs = torch.cat([obs, skill], dim=1)
+        # next_obs = torch.cat([next_obs, skill], dim=1)
+
+        mask = self.create_mask_matrix(self.skill)
 
         # update critic
         metrics.update(
             self.update_critic(
-                obs.detach(), action, reward, discount, next_obs.detach(), step
+                obs.detach(),
+                skill,
+                action,
+                reward,
+                discount,
+                next_obs.detach(),
+                step,
+                mask,
             )
         )
 
         # update actor
-        metrics.update(self.update_actor(obs.detach(), step))
+        metrics.update(self.update_actor(obs.detach(), skill, step))
 
         # update critic target
         utils.soft_update_params(
