@@ -115,11 +115,8 @@ def compute_apt_reward(source, target, args):
 
     b1, b2 = source.size(0), target.size(0)
     # (b1, 1, c) - (1, b2, c) -> (b1, 1, c) - (1, b2, c) -> (b1, b2, c) -> (b1, b2)
-    sim_matrix = torch.norm(
-        source[:, None, :].view(b1, 1, -1) - target[None, :, :].view(1, b2, -1),
-        dim=-1,
-        p=2,
-    )
+    sim_matrix = torch.cdist(source, target, p=2)
+
     reward, _ = sim_matrix.topk(
         args.knn_k, dim=1, largest=False, sorted=True
     )  # (b1, k)
