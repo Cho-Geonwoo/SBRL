@@ -17,7 +17,7 @@ num_seed_frames: 4000
 eval_every_frames: 10000
 num_eval_episodes: 10
 # snapshot
-snapshots: [100000, 500000, 1000000, 2000000]
+snapshots: [100000, 200000, 500000, 1000000, 2000000]
 snapshot_dir: ./models
 # replay buffer
 replay_buffer_size: 1000000
