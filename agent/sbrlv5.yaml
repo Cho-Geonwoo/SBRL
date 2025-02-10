@@ -1,6 +1,6 @@
 # @package agent
-_target_: agent.sbrl.SBRLAgent
-name: sbrl
+_target_: agent.sbrl.SBRLV5Agent
+name: sbrlv5
 reward_free: ${reward_free}
 obs_type: ??? # to be specified later
 obs_shape: ??? # to be specified later
@@ -26,10 +26,8 @@ update_encoder: ${update_encoder}
 # extra hyperparameter
 contrastive_update_rate: 3
 temperature: 0.5
-alpha: 0.01
 update_rep: true
 project_skill: true
-use_cic: true
 ensemble_size: 16 # 16 for default setting
 
 # skill finetuning ablation

@@ -11,7 +11,6 @@ import torch.nn.functional as F
 from dm_env import specs
 
 import utils
-from agent.ddpg import DDPGAgent
 from agent.ensemble_ddpg import EnsembleDDPGAgent
 
 
@@ -142,32 +141,7 @@ def compute_apt_reward(source, target, args):
     return reward
 
 
-class BECL(nn.Module):
-    def __init__(self, tau_dim, feature_dim, hidden_dim):
-        super().__init__()
-
-        self.embed = nn.Sequential(
-            nn.Linear(tau_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, feature_dim),
-        )
-
-        self.project_head = nn.Sequential(
-            nn.Linear(feature_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, feature_dim),
-        )
-        self.apply(utils.weight_init)
-
-    def forward(self, tau):
-        features = self.embed(tau)
-        features = self.project_head(features)
-        return features
-
-
-class SBRLAgent(EnsembleDDPGAgent):
+class SBRLV4Agent(EnsembleDDPGAgent):
     def __init__(
         self,
         update_skill_every_step,
@@ -177,7 +151,6 @@ class SBRLAgent(EnsembleDDPGAgent):
         temperature,
         alpha,
         skill,
-        use_cic,
         project_skill,
         update_rep,
         ensemble_size,
@@ -192,7 +165,6 @@ class SBRLAgent(EnsembleDDPGAgent):
         self.alpha = alpha
         # specify skill in fine-tuning stage if needed
         self.skill = int(skill) if skill >= 0 else np.random.choice(self.skill_dim)
-        self.use_cic = use_cic
         self.update_rep = update_rep
         # increase obs shape to include skill dim
         kwargs["meta_dim"] = self.skill_dim
@@ -201,25 +173,14 @@ class SBRLAgent(EnsembleDDPGAgent):
         # create actor and critic
         super().__init__(**kwargs)
 
-        # net
-        self.becl = BECL(
-            self.obs_dim, self.skill_dim, kwargs["hidden_dim"]
+        self.cic = CIC(
+            self.obs_dim, skill_dim, kwargs["hidden_dim"], project_skill
         ).to(kwargs["device"])
 
-        # optimizers
-        self.becl_opt = torch.optim.Adam(self.becl.parameters(), lr=self.lr)
-
-        if self.use_cic:
-            self.cic = CIC(
-                self.obs_dim, skill_dim, kwargs["hidden_dim"], project_skill
-            ).to(kwargs["device"])
-
             # optimizers
-            self.cic_optimizer = torch.optim.Adam(self.cic.parameters(), lr=self.lr)
+        self.cic_optimizer = torch.optim.Adam(self.cic.parameters(), lr=self.lr)
 
-            self.cic.train()
-
-        self.becl.train()
+        self.cic.train()
 
     def get_meta_specs(self):
         return (specs.Array((self.skill_dim,), np.float32, "skill"),)
@@ -244,72 +205,6 @@ class SBRLAgent(EnsembleDDPGAgent):
         if global_step % self.update_skill_every_step == 0:
             return self.init_meta()
         return meta
-
-    def update_contrastive(self, state, skills):
-        metrics = dict()
-        features = self.becl(state)
-        logits = self.compute_info_nce_loss(features, skills)
-        loss = logits.mean()
-
-        self.becl_opt.zero_grad()
-        if self.encoder_opt is not None:
-            self.encoder_opt.zero_grad(set_to_none=True)
-        loss.backward()
-        self.becl_opt.step()
-        if self.encoder_opt is not None:
-            self.encoder_opt.step()
-
-        if self.use_tb or self.use_wandb:
-            metrics["contrastive_loss"] = loss.item()
-
-        return metrics
-
-    def compute_intr_reward(self, skills, state, metrics):
-
-        # compute contrastive reward
-        features = self.becl(state)
-        contrastive_reward = torch.exp(-self.compute_info_nce_loss(features, skills))
-
-        intr_reward = contrastive_reward
-        if self.use_tb or self.use_wandb:
-            metrics["contrastive_reward"] = contrastive_reward.mean().item()
-
-        return intr_reward
-
-    def compute_info_nce_loss(self, features, skills):
-        # features: (b,c), skills :(b, skill_dim)
-        # label positives samples
-        labels = torch.argmax(skills, dim=-1)  # (b, 1)
-        labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).long()  # (b,b)
-        labels = labels.to(self.device)
-
-        features = F.normalize(features, dim=1)  # (b,c)
-        similarity_matrix = torch.matmul(features, features.T)  # (b,b)
-
-        # discard the main diagonal from both: labels and similarities matrix
-        mask = torch.eye(labels.shape[0], dtype=torch.bool).to(self.device)
-        labels = labels[~mask].view(labels.shape[0], -1)  # (b,b-1)
-        similarity_matrix = similarity_matrix[~mask].view(
-            similarity_matrix.shape[0], -1
-        )  # (b,b-1)
-
-        similarity_matrix = similarity_matrix / self.temperature
-        similarity_matrix -= torch.max(similarity_matrix, 1)[0][:, None]
-        similarity_matrix = torch.exp(similarity_matrix)
-
-        pick_one_positive_sample_idx = torch.argmax(labels, dim=-1, keepdim=True)
-        pick_one_positive_sample_idx = torch.zeros_like(labels).scatter_(
-            -1, pick_one_positive_sample_idx, 1
-        )
-
-        positives = torch.sum(
-            similarity_matrix * pick_one_positive_sample_idx, dim=-1, keepdim=True
-        )  # (b,1)
-        negatives = torch.sum(similarity_matrix, dim=-1, keepdim=True)  # (b,1)
-        eps = torch.as_tensor(1e-6)
-        loss = -torch.log(positives / (negatives + eps) + eps)  # (b,1)
-
-        return loss
 
     def compute_cpc_loss(self, obs, next_obs, skill):
         temperature = self.temperature
@@ -369,20 +264,15 @@ class SBRLAgent(EnsembleDDPGAgent):
             next_obs = self.aug_and_encode(next_obs)
 
         if self.reward_free:
-            metrics.update(self.update_contrastive(next_obs, skill))
-
-            if self.use_cic and self.update_rep:
-                metrics.update(self.update_cic(obs, skill, next_obs, step))
+            metrics.update(self.update_cic(obs, skill, next_obs, step))
 
             with torch.no_grad():
-                intr_reward = self.compute_intr_reward(skill, next_obs, metrics)
                 apt_reward = self.compute_apt_reward(next_obs, next_obs)
 
             if self.use_tb or self.use_wandb:
-                metrics["intr_reward"] = intr_reward.mean().item()
                 metrics["apt_reward"] = apt_reward.mean().item()
 
-            reward = intr_reward + self.alpha * apt_reward
+            reward = apt_reward
         else:
             reward = extr_reward
 
