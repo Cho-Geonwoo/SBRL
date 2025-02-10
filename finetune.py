@@ -203,16 +203,6 @@ class Workspace:
 
             meta = self.agent.update_meta(meta, self.global_step, time_step)
 
-            if hasattr(self.agent, "regress_meta"):
-                repeat = self.cfg.action_repeat
-                every = self.agent.update_task_every_step // repeat
-                init_step = self.agent.num_init_steps
-                if (
-                    self.global_step > (init_step // repeat)
-                    and self.global_step % every == 0
-                ):
-                    meta = self.agent.regress_meta(self.replay_iter, self.global_step)
-
             # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):
                 action = self.agent.act(

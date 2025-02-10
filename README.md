@@ -3,7 +3,7 @@ This codebase is built on top of the [Unsupervised Reinforcement Learning Benchm
 To pre-train SbRL, run the following command:
 
 ```sh
-python pretrain.py agent=sbrl domain=walker_stand seed=3
+python pretrain.py agent=sbrl domain=walker seed=3
 ```
 
 This script will produce several agent snapshots after training for `100k`, `500k`, `1M`, and `2M` frames and snapshots will be stored in `./models/states/<domain>/<agent>/<seed>/ `. (i.e. the snapshots path is `./models/states/walker/sbrl/3/ `).
