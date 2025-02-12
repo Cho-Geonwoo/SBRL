@@ -1,0 +1,11 @@
+# @package skill_selector
+_target_: skill_selector.ddpg.SkillSelectorAgent
+obs_type: ??? # to be specified later
+obs_shape: ??? # to be specified later
+skill_dim: 16
+device: ${device}
+lr: 1e-4
+feature_dim: 50
+hidden_dim: 1024
+
+update_every_steps: 50

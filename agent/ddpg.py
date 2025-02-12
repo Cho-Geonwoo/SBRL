@@ -195,6 +195,9 @@ class DDPGAgent:
         self.actor.train(training)
         self.critic.train(training)
 
+    def eval(self):
+        self.train(False)
+
     def init_from(self, other):
         # copy parameters over
         utils.hard_update_params(other.encoder, self.encoder)
@@ -228,7 +231,7 @@ class DDPGAgent:
             action = dist.sample(clip=None)
             if step < self.num_expl_steps:
                 action.uniform_(-1.0, 1.0)
-        return action.cpu().numpy()[0]
+        return action.cpu().detach().numpy()[0]
 
     def update_critic(self, obs, action, reward, discount, next_obs, step):
         metrics = dict()
