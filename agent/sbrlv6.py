@@ -111,7 +111,7 @@ rms = RMS()
 
 
 class RewardWeightScheduler:
-    def __init__(self, alpha=0.01, length=100, k=4, becl_period=50):
+    def __init__(self, becl_period=50):
         self._apt_weight = torch.tensor(0.0)
         self._becl_weight = torch.tensor(0.0)
 
@@ -407,16 +407,6 @@ class SBRLV6Agent(DDPGAgent):
         if self.reward_free:
             metrics.update(self.update_contrastive(next_obs, skill))
 
-            # for _ in range(self.contrastive_update_rate - 1):
-            #     batch = next(replay_iter)
-            #     obs, action, reward, discount, next_obs, skill = utils.to_torch(
-            #         batch, self.device
-            #     )
-            #     obs = self.aug_and_encode(obs)
-            #     next_obs = self.aug_and_encode(next_obs)
-
-            #     metrics.update(self.update_contrastive(next_obs, skill))
-
             if self.update_rep:
                 metrics.update(self.update_cic(obs, skill, next_obs, step))
 
@@ -424,9 +414,9 @@ class SBRLV6Agent(DDPGAgent):
                 intr_reward = self.compute_intr_reward(skill, next_obs, metrics)
                 apt_reward = self.compute_apt_reward(next_obs, next_obs)
 
-                self.reward_weight_scheduler.update(intr_reward, apt_reward)
-                intr_reward = intr_reward * self.reward_weight_scheduler.becl_weight
-                apt_reward = apt_reward * self.reward_weight_scheduler.apt_weight
+            self.reward_weight_scheduler.update(intr_reward, apt_reward)
+            apt_reward = apt_reward * self.reward_weight_scheduler.apt_weight
+            intr_reward = intr_reward * self.reward_weight_scheduler.becl_weight
 
             if self.use_tb or self.use_wandb:
                 metrics["intr_reward"] = intr_reward.mean().item()
