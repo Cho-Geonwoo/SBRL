@@ -5,7 +5,8 @@ defaults:
 # mode
 reward_free: false
 # task settings
-domain: walker_stand
+task: walker_stand
+domain: walker
 obs_type: states # [states, pixels]
 frame_stack: 3 # only works if obs_type=pixels
 action_repeat: 1 # set to 2 for pixels
@@ -34,7 +35,6 @@ use_tb: false
 use_wandb: false
 # define specific path for experiment
 experiment: ${agent.name}_seed_${seed}
-domain: walker
 extra_path: .
 
 hydra:
