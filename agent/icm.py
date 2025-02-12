@@ -13,13 +13,17 @@ class ICM(nn.Module):
         super().__init__()
 
         self.forward_net = nn.Sequential(
-            nn.Linear(obs_dim + action_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, obs_dim))
+            nn.Linear(obs_dim + action_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, obs_dim),
+        )
 
-        self.backward_net = nn.Sequential(nn.Linear(2 * obs_dim, hidden_dim),
-                                          nn.ReLU(),
-                                          nn.Linear(hidden_dim, action_dim),
-                                          nn.Tanh())
+        self.backward_net = nn.Sequential(
+            nn.Linear(2 * obs_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+            nn.Tanh(),
+        )
 
         self.apply(utils.weight_init)
 
@@ -30,14 +34,8 @@ class ICM(nn.Module):
         next_obs_hat = self.forward_net(torch.cat([obs, action], dim=-1))
         action_hat = self.backward_net(torch.cat([obs, next_obs], dim=-1))
 
-        forward_error = torch.norm(next_obs - next_obs_hat,
-                                   dim=-1,
-                                   p=2,
-                                   keepdim=True)
-        backward_error = torch.norm(action - action_hat,
-                                    dim=-1,
-                                    p=2,
-                                    keepdim=True)
+        forward_error = torch.norm(next_obs - next_obs_hat, dim=-1, p=2, keepdim=True)
+        backward_error = torch.norm(action - action_hat, dim=-1, p=2, keepdim=True)
 
         return forward_error, backward_error
 
@@ -48,8 +46,7 @@ class ICMAgent(DDPGAgent):
         self.icm_scale = icm_scale
         self.update_encoder = update_encoder
 
-        self.icm = ICM(self.obs_dim, self.action_dim,
-                       self.hidden_dim).to(self.device)
+        self.icm = ICM(self.obs_dim, self.action_dim, self.hidden_dim).to(self.device)
 
         # optimizers
         self.icm_opt = torch.optim.Adam(self.icm.parameters(), lr=self.lr)
@@ -72,7 +69,7 @@ class ICMAgent(DDPGAgent):
             self.encoder_opt.step()
 
         if self.use_tb or self.use_wandb:
-            metrics['icm_loss'] = loss.item()
+            metrics["icm_loss"] = loss.item()
 
         return metrics
 
@@ -91,7 +88,8 @@ class ICMAgent(DDPGAgent):
 
         batch = next(replay_iter)
         obs, action, extr_reward, discount, next_obs = utils.to_torch(
-            batch, self.device)
+            batch, self.device
+        )
 
         # augment and encode
         obs = self.aug_and_encode(obs)
@@ -102,18 +100,17 @@ class ICMAgent(DDPGAgent):
             metrics.update(self.update_icm(obs, action, next_obs, step))
 
             with torch.no_grad():
-                intr_reward = self.compute_intr_reward(obs, action, next_obs,
-                                                       step)
+                intr_reward = self.compute_intr_reward(obs, action, next_obs, step)
 
             if self.use_tb or self.use_wandb:
-                metrics['intr_reward'] = intr_reward.mean().item()
+                metrics["intr_reward"] = intr_reward.mean().item()
             reward = intr_reward
         else:
             reward = extr_reward
 
         if self.use_tb or self.use_wandb:
-            metrics['extr_reward'] = extr_reward.mean().item()
-            metrics['batch_reward'] = reward.mean().item()
+            metrics["extr_reward"] = extr_reward.mean().item()
+            metrics["batch_reward"] = reward.mean().item()
 
         if not self.update_encoder:
             obs = obs.detach()
@@ -121,14 +118,17 @@ class ICMAgent(DDPGAgent):
 
         # update critic
         metrics.update(
-            self.update_critic(obs.detach(), action, reward, discount,
-                               next_obs.detach(), step))
+            self.update_critic(
+                obs.detach(), action, reward, discount, next_obs.detach(), step
+            )
+        )
 
         # update actor
         metrics.update(self.update_actor(obs.detach(), step))
 
         # update critic target
-        utils.soft_update_params(self.critic, self.critic_target,
-                                 self.critic_target_tau)
+        utils.soft_update_params(
+            self.critic, self.critic_target, self.critic_target_tau
+        )
 
         return metrics

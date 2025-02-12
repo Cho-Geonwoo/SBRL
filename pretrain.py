@@ -62,13 +62,23 @@ class Workspace:
 
         self.logger = Logger(self.work_dir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
-        assert self.cfg.domain in PRIMAL_TASKS, f"{self.cfg.domain} not in {PRIMAL_TASKS}"
+        assert (
+            self.cfg.domain in PRIMAL_TASKS
+        ), f"{self.cfg.domain} not in {PRIMAL_TASKS}"
 
         self.train_env = dmc.make(
-            PRIMAL_TASKS[self.cfg.domain], cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
+            PRIMAL_TASKS[self.cfg.domain],
+            cfg.obs_type,
+            cfg.frame_stack,
+            cfg.action_repeat,
+            cfg.seed,
         )
         self.eval_env = dmc.make(
-            PRIMAL_TASKS[self.cfg.domain], cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed
+            PRIMAL_TASKS[self.cfg.domain],
+            cfg.obs_type,
+            cfg.frame_stack,
+            cfg.action_repeat,
+            cfg.seed,
         )
 
         # create agent

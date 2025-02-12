@@ -71,9 +71,9 @@ class SBRL5Agent(EnsembleDDPGAgent):
         super().__init__(**kwargs)
 
         # net
-        self.becl = BECL(
-            self.obs_dim, self.skill_dim, kwargs["hidden_dim"]
-        ).to(kwargs["device"])
+        self.becl = BECL(self.obs_dim, self.skill_dim, kwargs["hidden_dim"]).to(
+            kwargs["device"]
+        )
 
         # optimizers
         self.becl_opt = torch.optim.Adam(self.becl.parameters(), lr=self.lr)
