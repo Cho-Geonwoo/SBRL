@@ -43,6 +43,15 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
 
+        config = {}
+
+        for k, v in cfg.items():
+            if isinstance(v, dict):
+                for kk, vv in v.items():
+                    config[k + "." + kk] = vv
+            else:
+                config[k] = v
+
         if cfg.use_wandb:
             exp_name = "_".join(
                 [
@@ -54,7 +63,7 @@ class Workspace:
                 ]
             )
             wandb.login(key=cfg.wandb_key)
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name)
+            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name, config=config)
         # create logger
         self.logger = Logger(self.work_dir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
