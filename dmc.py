@@ -319,6 +319,7 @@ def make(name, obs_type, frame_stack, action_repeat, seed):
 
     make_fn = _make_jaco if domain == "jaco" else _make_dmc
     env = make_fn(obs_type, domain, task, frame_stack, action_repeat, seed)
+    print(f"Domain: {domain}, Task: {task}")
 
     if obs_type == "pixels":
         env = FrameStackWrapper(env, frame_stack)
