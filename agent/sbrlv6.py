@@ -111,29 +111,16 @@ rms = RMS()
 
 
 class RewardWeightScheduler:
-    def __init__(self, alpha=0.01, length=100, k=4, cic_period=10000, becl_period=50):
+    def __init__(self, alpha=0.01, length=100, k=4, becl_period=50):
         self._apt_weight = torch.tensor(0.0)
         self._becl_weight = torch.tensor(0.0)
 
-        self._length = length
-        self._alpha = alpha
-        self._k = k
         self._step = 0
-        self._cic_period = cic_period
-        self._becl_perioid = becl_period
+        self._becl_period = becl_period
         self._turn_off_becl = True
         self._becl_count = 0
         self._becl_duration = 25
         self._cic_bootstrap_duration = 10000
-
-        self._apt_reward_list = torch.zeros(length, dtype=torch.float32)
-        self._becl_reward_list = torch.zeros(length, dtype=torch.float32)
-
-        self._becl_reward_mean = torch.tensor(0.0)
-        self._apt_reward_mean = torch.tensor(0.0)
-
-        self._idx = 0
-        self._size = 0
 
     def update(self, apt_reward, becl_reward):
         self.update_with_period(apt_reward, becl_reward)
@@ -145,10 +132,8 @@ class RewardWeightScheduler:
 
         self._step += 1
         self._becl_count += 1
-        if self._step % self._cic_period == 0:
-            self._apt_weight = 1 - self._apt_weight
 
-        if self._becl_count % self._becl_perioid == 0:
+        if self._becl_count % self._becl_period == 0:
             self._becl_count = 0
             self._turn_off_becl = False
             self._becl_weight = 1 - self._becl_weight
@@ -159,32 +144,7 @@ class RewardWeightScheduler:
             self._turn_off_becl = True
 
         if self._step < self._cic_bootstrap_duration:
-            self._apt_weight = 1
             self._becl_weight = 0
-
-    def update_boost_weaker_reward(self, apt_reward, becl_reward):
-        apt_reward = apt_reward.detach()
-        becl_reward = becl_reward.detach()
-
-        self._apt_reward_list[self._idx] = apt_reward
-        self._becl_reward_list[self._idx] = becl_reward
-
-        self._apt_reward_mean = self._apt_reward_list.mean()
-        self._becl_reward_mean = self._becl_reward_list.mean()
-
-        self._idx = (self._idx + 1) % self._length
-        self._size += 1
-
-        if self._size > 1:
-            apt_slope = torch.diff(self._apt_reward_list[: self._size]).mean()
-            becl_slope = (
-                torch.diff(self._becl_reward_list[: self._size]).mean() / self._alpha
-            )
-        else:
-            apt_slope = becl_slope = torch.tensor(0.0)
-
-        self._apt_weight = 1 / (1 + torch.exp(self._k * (apt_slope - becl_slope)))
-        self._becl_weight = 1 - self._apt_weight
 
     @property
     def apt_weight(self):
