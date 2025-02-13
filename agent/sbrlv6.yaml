@@ -30,5 +30,10 @@ alpha: 0.01
 update_rep: true
 project_skill: true
 
+# becl hyperparameter
+becl_period: 30000
+becl_duration: 15000
+cic_bootstrap_duration: 180000
+
 # skill finetuning ablation
 skill: -1

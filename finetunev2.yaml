@@ -41,8 +41,7 @@ extra_path: .
 
 # finetuning settings
 skill_selection_training_steps: 10000
-skill_change_freq: 50
-meta_update_mode: "every_n" # "every_n", "every_step", "initial" 중 하나
+skill_change_freq: 1
 
 hydra:
   run:

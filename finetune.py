@@ -20,6 +20,7 @@ import dmc
 import utils
 from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
+
 if torch.cuda.is_available():
     from video import TrainVideoRecorder, VideoRecorder
 

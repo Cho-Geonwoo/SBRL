@@ -111,7 +111,7 @@ rms = RMS()
 
 
 class RewardWeightScheduler:
-    def __init__(self, becl_period=50):
+    def __init__(self, becl_period=50, becl_duration=25, cic_bootstrap_duration=100):
         self._apt_weight = torch.tensor(0.0)
         self._becl_weight = torch.tensor(0.0)
 
@@ -119,8 +119,8 @@ class RewardWeightScheduler:
         self._becl_period = becl_period
         self._turn_off_becl = True
         self._becl_count = 0
-        self._becl_duration = 25
-        self._cic_bootstrap_duration = 10000
+        self._becl_duration = becl_duration
+        self._cic_bootstrap_duration = cic_bootstrap_duration
 
     def update(self, apt_reward, becl_reward):
         self.update_with_period(apt_reward, becl_reward)
@@ -226,6 +226,9 @@ class SBRLV6Agent(DDPGAgent):
         skill,
         project_skill,
         update_rep,
+        becl_period,
+        becl_duration,
+        cic_bootstrap_duration,
         **kwargs
     ):
         self.skill_dim = skill_dim
@@ -257,7 +260,11 @@ class SBRLV6Agent(DDPGAgent):
 
         # optimizers
         self.cic_optimizer = torch.optim.Adam(self.cic.parameters(), lr=self.lr)
-        self.reward_weight_scheduler = RewardWeightScheduler()
+        self.reward_weight_scheduler = RewardWeightScheduler(
+            becl_period,
+            becl_duration,
+            cic_bootstrap_duration,
+        )
 
         self.cic.train()
 
