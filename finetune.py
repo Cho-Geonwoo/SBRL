@@ -157,19 +157,22 @@ class Workspace:
         meta = self.agent.init_meta()
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
-            self.video_recorder.init(self.eval_env, enabled=(episode == 0))
+            if self.cfg.save_video:
+                self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action = self.agent.act(
                         time_step.observation, meta, self.global_step, eval_mode=True
                     )
                 time_step = self.eval_env.step(action)
-                self.video_recorder.record(self.eval_env)
+                if self.cfg.save_video:
+                    self.video_recorder.record(self.eval_env)
                 total_reward += time_step.reward
                 step += 1
 
             episode += 1
-            self.video_recorder.save(f"{self.global_frame}.mp4")
+            if self.cfg.save_video:
+                self.video_recorder.save(f"{self.global_frame}.mp4")
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
             log("episode_reward", total_reward / episode)
@@ -193,12 +196,14 @@ class Workspace:
         time_step = self.train_env.reset()
         meta = self.agent.init_meta()
         self.replay_storage.add(time_step, meta)
-        self.train_video_recorder.init(time_step.observation)
+        if self.cfg.save_train_video:
+            self.train_video_recorder.init(time_step.observation)
         metrics = None
         while train_until_step(self.global_step):
             if time_step.last():
                 self._global_episode += 1
-                self.train_video_recorder.save(f"{self.global_frame}.mp4")
+                if self.cfg.save_train_video:
+                    self.train_video_recorder.save(f"{self.global_frame}.mp4")
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
@@ -219,7 +224,8 @@ class Workspace:
                 time_step = self.train_env.reset()
                 meta = self.agent.init_meta()
                 self.replay_storage.add(time_step, meta)
-                self.train_video_recorder.init(time_step.observation)
+                if self.cfg.save_train_video:
+                    self.train_video_recorder.init(time_step.observation)
 
                 episode_step = 0
                 episode_reward = 0
@@ -250,7 +256,8 @@ class Workspace:
             time_step = self.train_env.step(action)
             episode_reward += time_step.reward
             self.replay_storage.add(time_step, meta)
-            self.train_video_recorder.record(time_step.observation)
+            if self.cfg.save_train_video:
+                self.train_video_recorder.record(time_step.observation)
             episode_step += 1
             self._global_step += 1
 

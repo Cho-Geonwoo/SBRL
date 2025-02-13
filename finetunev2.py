@@ -203,7 +203,8 @@ class Workspace:
                         time_step.observation, meta, self.global_step, eval_mode=True
                     )
                 time_step = self.eval_env.step(action)
-                self.video_recorder.record(self.eval_env)
+                if self.cfg.save_video:
+                    self.video_recorder.record(self.eval_env)
                 total_reward += time_step.reward
                 step += 1
 
