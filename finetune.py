@@ -20,7 +20,8 @@ import dmc
 import utils
 from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
-from video import TrainVideoRecorder, VideoRecorder
+if torch.cuda.is_available():
+    from video import TrainVideoRecorder, VideoRecorder
 
 torch.backends.cudnn.benchmark = True
 
@@ -46,6 +47,7 @@ class Workspace:
             self.device = torch.device(cfg.device)
         else:
             self.device = torch.device("mps")
+            cfg.device = "mps"
 
         config = {}
 
@@ -122,10 +124,10 @@ class Workspace:
         self._replay_iter = None
 
         # create video recorders
-        self.video_recorder = VideoRecorder(self.work_dir if cfg.save_video else None)
-        self.train_video_recorder = TrainVideoRecorder(
-            self.work_dir if cfg.save_train_video else None
-        )
+        if cfg.save_video:
+            self.video_recorder = VideoRecorder(self.work_dir)
+        if cfg.save_train_video:
+            self.train_video_recorder = TrainVideoRecorder(self.work_dir)
 
         self.timer = utils.Timer()
         self._global_step = 0
