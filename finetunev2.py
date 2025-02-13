@@ -194,7 +194,8 @@ class Workspace:
             )
             meta = {"skill": meta_skill}
 
-            self.video_recorder.init(self.eval_env, enabled=(episode == 0))
+            if self.cfg.save_video:
+                self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     # agent는 외부에서 전달받은 meta를 그대로 사용합니다.
@@ -213,7 +214,8 @@ class Workspace:
                     meta = {"skill": meta_skill}
 
             episode += 1
-            self.video_recorder.save(f"{self.global_frame}.mp4")
+            if self.cfg.save_video:
+                self.video_recorder.save(f"{self.global_frame}.mp4")
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
             log("episode_reward", total_reward / episode)
@@ -295,9 +297,10 @@ class Workspace:
         meta = self.skill_selector.act(
             time_step.observation, self._global_step, eval_mode=True
         )
-        wandb.log({"skill": meta["skill"].argmax()})
+        wandb.log({"skill": meta.argmax()})
         self.replay_storage.add(time_step, {"skill": meta})
-        self.train_video_recorder.init(time_step.observation)
+        if self.cfg.save_train_video:
+            self.train_video_recorder.init(time_step.observation)
 
         train_until_step = utils.Until(
             self.cfg.num_train_frames, self.cfg.action_repeat
@@ -311,14 +314,16 @@ class Workspace:
         while train_until_step(self.global_step):
             if time_step.last():
                 self._global_episode += 1
-                self.train_video_recorder.save(f"{self.global_frame}.mp4")
+                if self.cfg.save_train_video:
+                    self.train_video_recorder.save(f"{self.global_frame}.mp4")
                 time_step = self.train_env.reset()
                 # 에피소드 전환 시 새로운 meta 선택
                 meta = self.skill_selector.act(
                     time_step.observation, self._global_step, eval_mode=True
                 )
                 self.replay_storage.add(time_step, {"skill": meta})
-                self.train_video_recorder.init(time_step.observation)
+                if self.cfg.save_train_video:
+                    self.train_video_recorder.init(time_step.observation)
                 episode_step, episode_reward = 0, 0
 
             if eval_every_step(self.global_step):
@@ -331,7 +336,7 @@ class Workspace:
                 meta = self.skill_selector.act(
                     time_step.observation, self._global_step, eval_mode=True
                 )
-                wandb.log({"skill": meta["skill"].argmax()})
+                wandb.log({"skill": meta.argmax()})
 
             # 에이전트는 외부에서 전달받은 meta를 그대로 사용
             action = self.agent.act(
@@ -350,7 +355,8 @@ class Workspace:
             time_step = self.train_env.step(action)
             episode_reward += time_step.reward
             self.replay_storage.add(time_step, {"skill": meta})
-            self.train_video_recorder.record(time_step.observation)
+            if self.cfg.save_train_video:
+                self.train_video_recorder.record(time_step.observation)
             episode_step += 1
             self._global_step += 1
 
