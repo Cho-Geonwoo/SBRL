@@ -7,6 +7,7 @@ import torch.nn.functional as F
 
 import utils  # utils.weight_init, utils.soft_update_params, utils.to_torch 등이 포함되어 있다고 가정
 
+
 ###############################################################################
 # Encoder (DDPG의 Encoder와 동일)
 ###############################################################################
@@ -34,6 +35,7 @@ class SkillEncoder(nn.Module):
         h = self.convnet(obs)
         h = h.view(h.size(0), -1)
         return h
+
 
 ###############################################################################
 # Skill Actor: observation을 받아 skill 선택을 위한 logits를 출력
@@ -69,6 +71,7 @@ class SkillActor(nn.Module):
         logits = self.policy(h)
         return logits
 
+
 ###############################################################################
 # Skill Critic: observation을 받아 각 skill에 대한 Q-value를 추정
 ###############################################################################
@@ -91,6 +94,7 @@ class SkillCritic(nn.Module):
         h = self.trunk(obs)
         q_values = self.q_net(h)  # shape: (batch, skill_dim)
         return q_values
+
 
 ###############################################################################
 # SkillSelectorAgent: observation → skill 선택 (one-hot vector)
@@ -139,9 +143,15 @@ class SkillSelectorAgent:
             self.obs_dim = obs_shape[0]
 
         # actor 및 critic 네트워크 초기화
-        self.actor = SkillActor(obs_type, self.obs_dim, skill_dim, feature_dim, hidden_dim).to(device)
-        self.critic = SkillCritic(obs_type, self.obs_dim, skill_dim, feature_dim, hidden_dim).to(device)
-        self.target_critic = SkillCritic(obs_type, self.obs_dim, skill_dim, feature_dim, hidden_dim).to(device)
+        self.actor = SkillActor(
+            obs_type, self.obs_dim, skill_dim, feature_dim, hidden_dim
+        ).to(device)
+        self.critic = SkillCritic(
+            obs_type, self.obs_dim, skill_dim, feature_dim, hidden_dim
+        ).to(device)
+        self.target_critic = SkillCritic(
+            obs_type, self.obs_dim, skill_dim, feature_dim, hidden_dim
+        ).to(device)
         self.target_critic.load_state_dict(self.critic.state_dict())
 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
@@ -155,8 +165,9 @@ class SkillSelectorAgent:
 
     def get_epsilon(self, step):
         """epsilon decay schedule"""
-        epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
-                  np.exp(-1.0 * step / self.epsilon_decay)
+        epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * np.exp(
+            -1.0 * step / self.epsilon_decay
+        )
         return epsilon
 
     def train(self, training=True):
@@ -189,7 +200,9 @@ class SkillSelectorAgent:
         else:
             # epsilon-greedy: 무작위 선택할 확률 epsilon 적용
             if random.random() < epsilon:
-                skill_idx = torch.tensor([random.randrange(self.skill_dim)], device=self.device)
+                skill_idx = torch.tensor(
+                    [random.randrange(self.skill_dim)], device=self.device
+                )
             else:
                 skill_idx = dist.sample()
         # one-hot 벡터로 변환
@@ -212,7 +225,9 @@ class SkillSelectorAgent:
         metrics = {}
         # 배치 샘플링 (배치 구성: obs, action, reward, discount, next_obs, *meta)
         batch = next(replay_iter)
-        obs, action, reward, discount, next_obs, *meta = utils.to_torch(batch, self.device)
+        obs, action, reward, discount, next_obs, *meta = utils.to_torch(
+            batch, self.device
+        )
         # meta의 첫 번째 원소가 저장된 skill이라고 가정 (예: one-hot 벡터)
         if len(meta) > 0:
             stored_skill = meta[0]
@@ -256,7 +271,7 @@ class SkillSelectorAgent:
         q_values_for_actor = self.critic(obs_enc)
         actor_q = q_values_for_actor.gather(1, sampled_skill.unsqueeze(1)).squeeze(1)
         # policy gradient 방식: log_prob * Q를 최대화 (최소화 문제로 변환)
-        actor_loss = - (log_prob * actor_q).mean()
+        actor_loss = -(log_prob * actor_q).mean()
         self.actor_opt.zero_grad()
         actor_loss.backward()
         self.actor_opt.step()

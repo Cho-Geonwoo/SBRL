@@ -4,15 +4,16 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import os
 import wandb
+import torch
 
-# os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
-# os.environ["MUJOCO_GL"] = "egl"
+if torch.cuda.is_available():
+    os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
+    os.environ["MUJOCO_GL"] = "egl"
 
 from pathlib import Path
 
 import hydra
 import numpy as np
-import torch
 from dm_env import specs
 
 import dmc
@@ -41,7 +42,10 @@ class Workspace:
 
         self.cfg = cfg
         utils.set_seed_everywhere(cfg.seed)
-        self.device = torch.device(cfg.device)
+        if torch.cuda.is_available():
+            self.device = torch.device(cfg.device)
+        else:
+            self.device = torch.device("mps")
 
         config = {}
 
@@ -63,7 +67,9 @@ class Workspace:
                 ]
             )
             wandb.login(key=cfg.wandb_key)
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name, config=config)
+            wandb.init(
+                project="urlb", group=cfg.agent.name, name=exp_name, config=config
+            )
         # create logger
         self.logger = Logger(self.work_dir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs

@@ -4,15 +4,16 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import os
 import wandb
+import torch
 
-os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
-os.environ["MUJOCO_GL"] = "egl"
+if torch.cuda.is_available():
+    os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
+    os.environ["MUJOCO_GL"] = "egl"
 
 from pathlib import Path
 
 import hydra
 import numpy as np
-import torch
 from dm_env import specs
 
 import dmc
@@ -33,10 +34,12 @@ def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
     cfg.num_expl_steps = num_expl_steps
     return hydra.utils.instantiate(cfg)
 
+
 def make_skill_selector(obs_type, obs_spec, cfg):
     cfg.obs_type = obs_type
     cfg.obs_shape = obs_spec.shape
     return hydra.utils.instantiate(cfg)
+
 
 class Workspace:
     def __init__(self, cfg):
@@ -45,7 +48,18 @@ class Workspace:
 
         self.cfg = cfg
         utils.set_seed_everywhere(cfg.seed)
-        self.device = torch.device(cfg.device)
+        if torch.cuda.is_available():
+            self.device = torch.device(cfg.device)
+        else:
+            self.device = torch.device("mps")
+
+        config = {}
+        for k, v in cfg.items():
+            if isinstance(v, dict):
+                for kk, vv in v.items():
+                    config[k + "." + kk] = vv
+            else:
+                config[k] = v
 
         # create logger
         if cfg.use_wandb:
@@ -59,7 +73,9 @@ class Workspace:
                 ]
             )
             wandb.login(key=cfg.wandb_key)
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name)
+            wandb.init(
+                project="urlb", group=cfg.agent.name, name=exp_name, config=config
+            )
         self.logger = Logger(self.work_dir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
         self.train_env = dmc.make(
@@ -164,27 +180,33 @@ class Workspace:
     def eval(self):
         step, episode, total_reward = 0, 0, 0
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
-        
+
         # 평가 시에는 agent 내부 meta 생성 대신, 별도의 skill selector를 사용합니다.
         # (평가 모드에서는 skill selector도 freeze된 상태여야 합니다.)
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
             # 에피소드 시작 시, skill selector로부터 meta (skill)를 한 번 선택합니다.
-            meta_skill = self.skill_selector.act(time_step.observation, self.global_step, eval_mode=True)
+            meta_skill = self.skill_selector.act(
+                time_step.observation, self.global_step, eval_mode=True
+            )
             meta = {"skill": meta_skill}
-            
+
             self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     # agent는 외부에서 전달받은 meta를 그대로 사용합니다.
-                    action = self.agent.act(time_step.observation, meta, self.global_step, eval_mode=True)
+                    action = self.agent.act(
+                        time_step.observation, meta, self.global_step, eval_mode=True
+                    )
                 time_step = self.eval_env.step(action)
                 self.video_recorder.record(self.eval_env)
                 total_reward += time_step.reward
                 step += 1
 
                 if step % self.cfg.skill_change_freq == 0:
-                    meta_skill = self.skill_selector.act(time_step.observation, self.global_step, eval_mode=True)
+                    meta_skill = self.skill_selector.act(
+                        time_step.observation, self.global_step, eval_mode=True
+                    )
                     meta = {"skill": meta_skill}
 
             episode += 1
@@ -206,10 +228,14 @@ class Workspace:
         self.skill_selector.train()
         # === Phase 1: Skill Selection Training (에이전트의 나머지 파라미터는 freeze) ===
         time_step = self.train_env.reset()
-        meta = self.skill_selector.act(time_step.observation, self._global_step, eval_mode=False)
+        meta = self.skill_selector.act(
+            time_step.observation, self._global_step, eval_mode=False
+        )
         self.replay_storage.add(time_step, {"skill": meta})
 
-        train_until_step = utils.Until(self.cfg.skill_selection_training_steps, self.cfg.action_repeat)
+        train_until_step = utils.Until(
+            self.cfg.skill_selection_training_steps, self.cfg.action_repeat
+        )
         seed_until_step = utils.Until(self.cfg.num_seed_frames, self.cfg.action_repeat)
 
         episode_step, episode_reward = 0, 0
@@ -218,19 +244,30 @@ class Workspace:
             if time_step.last():
                 self._global_episode += 1
                 time_step = self.train_env.reset()
-                meta = self.skill_selector.act(time_step.observation, self._global_step, eval_mode=False)
+                meta = self.skill_selector.act(
+                    time_step.observation, self._global_step, eval_mode=False
+                )
                 self.replay_storage.add(time_step, {"skill": meta})
                 episode_step, episode_reward = 0, 0
 
             # cfg.skill_change_freq마다 meta 갱신
             if self.global_step % self.cfg.skill_change_freq == 0:
-                meta = self.skill_selector.act(time_step.observation, self._global_step, eval_mode=False)
+                meta = self.skill_selector.act(
+                    time_step.observation, self._global_step, eval_mode=False
+                )
 
             # 에이전트는 외부에서 전달받은 meta를 그대로 사용
-            action = self.agent.act(time_step.observation, {"skill": meta}, self._global_step, eval_mode=True)
+            action = self.agent.act(
+                time_step.observation,
+                {"skill": meta},
+                self._global_step,
+                eval_mode=True,
+            )
 
             if not seed_until_step(self.global_step):
-                metrics = self.skill_selector.update(self.replay_iter, self._global_step)
+                metrics = self.skill_selector.update(
+                    self.replay_iter, self._global_step
+                )
                 self.logger.log_metrics(metrics, self.global_frame, ty="train")
                 if self.cfg.use_wandb:
                     wandb.log(metrics)
@@ -252,13 +289,20 @@ class Workspace:
         # === Phase 2: Agent Finetuning (버전 A: 매 n step마다 meta 업데이트) ===
         # 에피소드 시작 시 초기 meta 선택
         time_step = self.train_env.reset()
-        meta = self.skill_selector.act(time_step.observation, self._global_step, eval_mode=True)
+        meta = self.skill_selector.act(
+            time_step.observation, self._global_step, eval_mode=True
+        )
+        wandb.log({"skill": meta["skill"].argmax()})
         self.replay_storage.add(time_step, {"skill": meta})
         self.train_video_recorder.init(time_step.observation)
 
-        train_until_step = utils.Until(self.cfg.num_train_frames, self.cfg.action_repeat)
+        train_until_step = utils.Until(
+            self.cfg.num_train_frames, self.cfg.action_repeat
+        )
         seed_until_step = utils.Until(self.cfg.num_seed_frames, self.cfg.action_repeat)
-        eval_every_step = utils.Every(self.cfg.eval_every_frames, self.cfg.action_repeat)
+        eval_every_step = utils.Every(
+            self.cfg.eval_every_frames, self.cfg.action_repeat
+        )
 
         episode_step, episode_reward = 0, 0
         while train_until_step(self.global_step):
@@ -267,7 +311,9 @@ class Workspace:
                 self.train_video_recorder.save(f"{self.global_frame}.mp4")
                 time_step = self.train_env.reset()
                 # 에피소드 전환 시 새로운 meta 선택
-                meta = self.skill_selector.act(time_step.observation, self._global_step, eval_mode=True)
+                meta = self.skill_selector.act(
+                    time_step.observation, self._global_step, eval_mode=True
+                )
                 self.replay_storage.add(time_step, {"skill": meta})
                 self.train_video_recorder.init(time_step.observation)
                 episode_step, episode_reward = 0, 0
@@ -279,10 +325,18 @@ class Workspace:
 
             # cfg.skill_change_freq마다 meta 갱신
             if self.global_step % self.cfg.skill_change_freq == 0:
-                meta = self.skill_selector.act(time_step.observation, self._global_step, eval_mode=True)
+                meta = self.skill_selector.act(
+                    time_step.observation, self._global_step, eval_mode=True
+                )
+                wandb.log({"skill": meta["skill"].argmax()})
 
             # 에이전트는 외부에서 전달받은 meta를 그대로 사용
-            action = self.agent.act(time_step.observation, {"skill": meta}, self._global_step, eval_mode=False)
+            action = self.agent.act(
+                time_step.observation,
+                {"skill": meta},
+                self._global_step,
+                eval_mode=False,
+            )
 
             if not seed_until_step(self.global_step):
                 metrics = self.agent.update(self.replay_iter, self._global_step)
