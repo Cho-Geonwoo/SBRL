@@ -1,3 +1,4 @@
+import random
 import warnings
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -43,6 +44,7 @@ class Workspace:
         print(f"workspace: {self.work_dir}")
 
         self.cfg = cfg
+        cfg.seed = random.randint(0, 100000)
         utils.set_seed_everywhere(cfg.seed)
         if torch.cuda.is_available():
             self.device = torch.device(cfg.device)
