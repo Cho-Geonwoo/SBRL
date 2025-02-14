@@ -169,7 +169,7 @@ class BECL(nn.Module):
         return features
 
 
-class SBRLV7Agent(DDPGAgent):
+class SBRLAgent(DDPGAgent):
     def __init__(
         self,
         update_skill_every_step,

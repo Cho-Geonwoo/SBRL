@@ -230,75 +230,12 @@ class Workspace:
                 log("skill", meta["skill"].argmax())
 
     def train(self):
-        print("Phase 1: Skill selection training ...")
-
-        self.agent.eval()
-        self.skill_selector.train()
-        # === Phase 1: Skill Selection Training (에이전트의 나머지 파라미터는 freeze) ===
-        time_step = self.train_env.reset()
-        meta = self.skill_selector.act(
-            time_step.observation, self._global_step, eval_mode=False
-        )
-        self.replay_storage.add(time_step, {"skill": meta})
-
-        train_until_step = utils.Until(
-            self.cfg.skill_selection_training_steps, self.cfg.action_repeat
-        )
-        seed_until_step = utils.Until(self.cfg.num_seed_frames, self.cfg.action_repeat)
-
-        episode_step, episode_reward = 0, 0
-
-        while train_until_step(self.global_step):
-            if time_step.last():
-                self._global_episode += 1
-                time_step = self.train_env.reset()
-                meta = self.skill_selector.act(
-                    time_step.observation, self._global_step, eval_mode=False
-                )
-                self.replay_storage.add(time_step, {"skill": meta})
-                episode_step, episode_reward = 0, 0
-
-            # cfg.skill_change_freq마다 meta 갱신
-            if self.global_step % self.cfg.skill_change_freq == 0:
-                meta = self.skill_selector.act(
-                    time_step.observation, self._global_step, eval_mode=False
-                )
-
-            # 에이전트는 외부에서 전달받은 meta를 그대로 사용
-            action = self.agent.act(
-                time_step.observation,
-                {"skill": meta},
-                self._global_step,
-                eval_mode=True,
-            )
-
-            if not seed_until_step(self.global_step):
-                metrics = self.skill_selector.update(
-                    self.replay_iter, self._global_step
-                )
-                self.logger.log_metrics(metrics, self.global_frame, ty="train")
-                if self.cfg.use_wandb:
-                    wandb.log(metrics)
-
-            time_step = self.train_env.step(action)
-            episode_reward += time_step.reward
-            self.replay_storage.add(time_step, {"skill": meta})
-            episode_step += 1
-            self._global_step += 1
-
-        self.agent.train()
-        self.skill_selector.eval()
-
-        print("Phase 1 완료. (Skill selection networks frozen)")
-        self.reset_replay_buffer()
         self._global_step = 0
         self._global_episode = 0
 
-        # === Phase 2: Agent Finetuning (버전 A: 매 n step마다 meta 업데이트) ===
-        # 에피소드 시작 시 초기 meta 선택
         time_step = self.train_env.reset()
         meta = self.skill_selector.act(
-            time_step.observation, self._global_step, eval_mode=True
+            time_step.observation, self._global_step, eval_mode=False
         )
         wandb.log({"skill": meta.argmax()})
         self.replay_storage.add(time_step, {"skill": meta})
@@ -320,13 +257,13 @@ class Workspace:
                 if self.cfg.save_train_video:
                     self.train_video_recorder.save(f"{self.global_frame}.mp4")
                 time_step = self.train_env.reset()
-                # 에피소드 전환 시 새로운 meta 선택
                 meta = self.skill_selector.act(
-                    time_step.observation, self._global_step, eval_mode=True
+                    time_step.observation, self._global_step, eval_mode=False
                 )
                 self.replay_storage.add(time_step, {"skill": meta})
                 if self.cfg.save_train_video:
                     self.train_video_recorder.init(time_step.observation)
+                wandb.log({"episode_reward": episode_reward})
                 episode_step, episode_reward = 0, 0
 
             if eval_every_step(self.global_step):
@@ -334,14 +271,12 @@ class Workspace:
                 self.eval()
                 self.agent.train()
 
-            # cfg.skill_change_freq마다 meta 갱신
             if self.global_step % self.cfg.skill_change_freq == 0:
                 meta = self.skill_selector.act(
-                    time_step.observation, self._global_step, eval_mode=True
+                    time_step.observation, self._global_step, eval_mode=False
                 )
                 wandb.log({"skill": meta.argmax()})
 
-            # 에이전트는 외부에서 전달받은 meta를 그대로 사용
             action = self.agent.act(
                 time_step.observation,
                 {"skill": meta},
@@ -350,7 +285,11 @@ class Workspace:
             )
 
             if not seed_until_step(self.global_step):
+                skill_selector_metrics = self.skill_selector.update(
+                    self.replay_iter, self._global_step
+                )
                 metrics = self.agent.update(self.replay_iter, self._global_step)
+                metrics.update(skill_selector_metrics)
                 self.logger.log_metrics(metrics, self.global_frame, ty="train")
                 if self.cfg.use_wandb:
                     wandb.log(metrics)
@@ -377,6 +316,8 @@ class Workspace:
                 / str(seed)
                 / f"snapshot_{self.cfg.snapshot_ts}.pt"
             )
+            # snapshot = "/Users/geonwoocho/Desktop/research/RLC2025/SBRL/snapshot.pt"
+            # snapshot = Path(snapshot)
             logging.info(
                 "loading model :{},cwd is {}".format(str(snapshot), str(Path.cwd()))
             )
@@ -384,7 +325,7 @@ class Workspace:
                 logging.error("no such a pretrain model")
                 return None
             with snapshot.open("rb") as f:
-                payload = torch.load(f, map_location="cuda:0")
+                payload = torch.load(f, map_location="mps")
             return payload
 
         # try to load current seed
@@ -402,6 +343,8 @@ def main(cfg):
     logging.basicConfig(encoding="utf-8", level=logging.DEBUG)
     workspace = W(cfg)
     snapshot = root_dir / "snapshot.pt"
+    # snapshot = "/Users/geonwoocho/Desktop/research/RLC2025/SBRL/snapshot.pt"
+    # snapshot = Path(snapshot)
     if snapshot.exists():
         print(f"resuming: {snapshot}")
         workspace.load_snapshot()

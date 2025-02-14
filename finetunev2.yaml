@@ -40,7 +40,6 @@ experiment: ${agent.name}_seed_${seed}
 extra_path: .
 
 # finetuning settings
-skill_selection_training_steps: 10000
 skill_change_freq: 1
 
 hydra:
