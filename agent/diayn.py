@@ -15,11 +15,13 @@ from agent.ddpg import DDPGAgent
 class DIAYN(nn.Module):
     def __init__(self, obs_dim, skill_dim, hidden_dim):
         super().__init__()
-        self.skill_pred_net = nn.Sequential(nn.Linear(obs_dim, hidden_dim),
-                                            nn.ReLU(),
-                                            nn.Linear(hidden_dim, hidden_dim),
-                                            nn.ReLU(),
-                                            nn.Linear(hidden_dim, skill_dim))
+        self.skill_pred_net = nn.Sequential(
+            nn.Linear(obs_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, skill_dim),
+        )
 
         self.apply(utils.weight_init)
 
@@ -29,8 +31,9 @@ class DIAYN(nn.Module):
 
 
 class DIAYNAgent(DDPGAgent):
-    def __init__(self, update_skill_every_step, skill_dim, diayn_scale,
-                 update_encoder, **kwargs):
+    def __init__(
+        self, update_skill_every_step, skill_dim, diayn_scale, update_encoder, **kwargs
+    ):
         self.skill_dim = skill_dim
         self.update_skill_every_step = update_skill_every_step
         self.diayn_scale = diayn_scale
@@ -42,8 +45,9 @@ class DIAYNAgent(DDPGAgent):
         super().__init__(**kwargs)
 
         # create diayn
-        self.diayn = DIAYN(self.obs_dim - self.skill_dim, self.skill_dim,
-                           kwargs['hidden_dim']).to(kwargs['device'])
+        self.diayn = DIAYN(
+            self.obs_dim - self.skill_dim, self.skill_dim, kwargs["hidden_dim"]
+        ).to(kwargs["device"])
 
         # loss criterion
         self.diayn_criterion = nn.CrossEntropyLoss()
@@ -53,13 +57,13 @@ class DIAYNAgent(DDPGAgent):
         self.diayn.train()
 
     def get_meta_specs(self):
-        return (specs.Array((self.skill_dim,), np.float32, 'skill'),)
+        return (specs.Array((self.skill_dim,), np.float32, "skill"),)
 
     def init_meta(self):
         skill = np.zeros(self.skill_dim, dtype=np.float32)
         skill[np.random.choice(self.skill_dim)] = 1.0
         meta = OrderedDict()
-        meta['skill'] = skill
+        meta["skill"] = skill
         return meta
 
     def update_meta(self, meta, global_step, time_step):
@@ -81,8 +85,8 @@ class DIAYNAgent(DDPGAgent):
             self.encoder_opt.step()
 
         if self.use_tb or self.use_wandb:
-            metrics['diayn_loss'] = loss.item()
-            metrics['diayn_acc'] = df_accuracy
+            metrics["diayn_loss"] = loss.item()
+            metrics["diayn_acc"] = df_accuracy
 
         return metrics
 
@@ -91,8 +95,9 @@ class DIAYNAgent(DDPGAgent):
         d_pred = self.diayn(next_obs)
         d_pred_log_softmax = F.log_softmax(d_pred, dim=1)
         _, pred_z = torch.max(d_pred_log_softmax, dim=1, keepdim=True)
-        reward = d_pred_log_softmax[torch.arange(d_pred.shape[0]),
-                                    z_hat] - math.log(1 / self.skill_dim)
+        reward = d_pred_log_softmax[torch.arange(d_pred.shape[0]), z_hat] - math.log(
+            1 / self.skill_dim
+        )
         reward = reward.reshape(-1, 1)
 
         return reward * self.diayn_scale
@@ -106,12 +111,12 @@ class DIAYNAgent(DDPGAgent):
         d_pred_log_softmax = F.log_softmax(d_pred, dim=1)
         _, pred_z = torch.max(d_pred_log_softmax, dim=1, keepdim=True)
         d_loss = self.diayn_criterion(d_pred, z_hat)
-        df_accuracy = torch.sum(
-            torch.eq(z_hat,
-                     pred_z.reshape(1,
-                                    list(
-                                        pred_z.size())[0])[0])).float() / list(
-                                            pred_z.size())[0]
+        df_accuracy = (
+            torch.sum(
+                torch.eq(z_hat, pred_z.reshape(1, list(pred_z.size())[0])[0])
+            ).float()
+            / list(pred_z.size())[0]
+        )
         return d_loss, df_accuracy
 
     def update(self, replay_iter, step):
@@ -123,7 +128,8 @@ class DIAYNAgent(DDPGAgent):
         batch = next(replay_iter)
 
         obs, action, extr_reward, discount, next_obs, skill = utils.to_torch(
-            batch, self.device)
+            batch, self.device
+        )
 
         # augment and encode
         obs = self.aug_and_encode(obs)
@@ -136,14 +142,14 @@ class DIAYNAgent(DDPGAgent):
                 intr_reward = self.compute_intr_reward(skill, next_obs, step)
 
             if self.use_tb or self.use_wandb:
-                metrics['intr_reward'] = intr_reward.mean().item()
+                metrics["intr_reward"] = intr_reward.mean().item()
             reward = intr_reward
         else:
             reward = extr_reward
 
         if self.use_tb or self.use_wandb:
-            metrics['extr_reward'] = extr_reward.mean().item()
-            metrics['batch_reward'] = reward.mean().item()
+            metrics["extr_reward"] = extr_reward.mean().item()
+            metrics["batch_reward"] = reward.mean().item()
 
         if not self.update_encoder:
             obs = obs.detach()
@@ -155,14 +161,17 @@ class DIAYNAgent(DDPGAgent):
 
         # update critic
         metrics.update(
-            self.update_critic(obs.detach(), action, reward, discount,
-                               next_obs.detach(), step))
+            self.update_critic(
+                obs.detach(), action, reward, discount, next_obs.detach(), step
+            )
+        )
 
         # update actor
         metrics.update(self.update_actor(obs.detach(), step))
 
         # update critic target
-        utils.soft_update_params(self.critic, self.critic_target,
-                                 self.critic_target_tau)
+        utils.soft_update_params(
+            self.critic, self.critic_target, self.critic_target_tau
+        )
 
         return metrics

@@ -78,12 +78,12 @@ class SkillSelectorAgent:
         self.encoder = nn.Identity()
         self.obs_dim = obs_shape[0]
 
-        self.actor = SkillActor(
-            self.obs_dim, skill_dim, feature_dim, hidden_dim
-        ).to(device)
-        self.critic = SkillCritic(
-            self.obs_dim, skill_dim, feature_dim, hidden_dim
-        ).to(device)
+        self.actor = SkillActor(self.obs_dim, skill_dim, feature_dim, hidden_dim).to(
+            device
+        )
+        self.critic = SkillCritic(self.obs_dim, skill_dim, feature_dim, hidden_dim).to(
+            device
+        )
         self.target_critic = SkillCritic(
             self.obs_dim, skill_dim, feature_dim, hidden_dim
         ).to(device)
@@ -178,7 +178,7 @@ class SkillSelectorAgent:
         entropy = dist.entropy()
         beta = 0.01
 
-        actor_loss = - (log_prob * actor_q).mean() - beta * entropy.mean()
+        actor_loss = -(log_prob * actor_q).mean() - beta * entropy.mean()
 
         self.actor_opt.zero_grad()
         actor_loss.backward()

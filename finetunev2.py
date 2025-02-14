@@ -38,7 +38,7 @@ def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
     return hydra.utils.instantiate(cfg)
 
 
-def make_skill_selector( obs_spec, cfg):
+def make_skill_selector(obs_spec, cfg):
     cfg.obs_shape = obs_spec.shape
     return hydra.utils.instantiate(cfg)
 
