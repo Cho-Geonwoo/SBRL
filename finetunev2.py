@@ -38,8 +38,7 @@ def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
     return hydra.utils.instantiate(cfg)
 
 
-def make_skill_selector(obs_type, obs_spec, cfg):
-    cfg.obs_type = obs_type
+def make_skill_selector( obs_spec, cfg):
     cfg.obs_shape = obs_spec.shape
     return hydra.utils.instantiate(cfg)
 
@@ -100,7 +99,6 @@ class Workspace:
         )
 
         self.skill_selector = make_skill_selector(
-            cfg.obs_type,
             self.train_env.observation_spec(),
             cfg.skill_selector,
         )
@@ -186,11 +184,8 @@ class Workspace:
         step, episode, total_reward = 0, 0, 0
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
 
-        # 평가 시에는 agent 내부 meta 생성 대신, 별도의 skill selector를 사용합니다.
-        # (평가 모드에서는 skill selector도 freeze된 상태여야 합니다.)
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
-            # 에피소드 시작 시, skill selector로부터 meta (skill)를 한 번 선택합니다.
             meta_skill = self.skill_selector.act(
                 time_step.observation, self.global_step, eval_mode=True
             )
@@ -200,7 +195,6 @@ class Workspace:
                 self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
-                    # agent는 외부에서 전달받은 meta를 그대로 사용합니다.
                     action = self.agent.act(
                         time_step.observation, meta, self.global_step, eval_mode=True
                     )
@@ -225,7 +219,6 @@ class Workspace:
             log("episode_length", step * self.cfg.action_repeat / episode)
             log("episode", self.global_episode)
             log("step", self.global_step)
-            # meta에 저장된 skill 정보가 있다면 로깅 (예, one-hot vector의 argmax)
             if "skill" in meta:
                 log("skill", meta["skill"].argmax())
 
