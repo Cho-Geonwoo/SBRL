@@ -14,7 +14,7 @@ class Encoder(nn.Module):
         super().__init__()
 
         assert len(obs_shape) == 3
-        self.repr_dim = 32 * 35 * 35
+        self.repr_dim = 32 * 35 * 35 
 
         self.convnet = nn.Sequential(
             nn.Conv2d(obs_shape[0], 32, 3, stride=2),
@@ -232,6 +232,115 @@ class DDPGAgent:
             if step < self.num_expl_steps:
                 action.uniform_(-1.0, 1.0)
         return action.cpu().detach().numpy()[0]
+
+    def update_critic_with_gradient_conflict_solver(
+        self, obs, action, intr_reward, apt_reward, discount, next_obs, step
+    ):
+        metrics = dict()
+
+        with torch.no_grad():
+            stddev = utils.schedule(self.stddev_schedule, step)
+            dist = self.actor(next_obs, stddev)
+            next_action = dist.sample(clip=self.stddev_clip)
+
+            target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
+            target_V = torch.min(target_Q1, target_Q2)
+
+            target_Q_intr = intr_reward + discount * target_V
+            target_Q_apt = apt_reward + discount * target_V
+
+        Q1, Q2 = self.critic(obs, action)
+
+        critic_loss_intr = F.mse_loss(Q1, target_Q_intr) + F.mse_loss(Q2, target_Q_intr)
+        critic_loss_apt = F.mse_loss(Q1, target_Q_apt) + F.mse_loss(Q2, target_Q_apt)
+
+        self.critic_opt.zero_grad(set_to_none=True)
+
+        critic_loss_intr.backward(retain_graph=True)
+
+        grad_intr = []
+        for p in self.critic.parameters():
+            if p.grad is not None:
+                grad_intr.append(p.grad.clone())
+            else:
+                grad_intr.append(None)
+
+        self.critic_opt.zero_grad(set_to_none=True)
+
+        critic_loss_apt.backward(retain_graph=True)
+
+        grad_apt = []
+        for p in self.critic.parameters():
+            if p.grad is not None:
+                grad_apt.append(p.grad.clone())
+            else:
+                grad_apt.append(None)
+
+        dot = 0.0
+        for g_i, g_a in zip(grad_intr, grad_apt):
+            if g_i is not None and g_a is not None:
+                dot += (g_i * g_a).sum()
+
+        # self.becl_cic_ratio is [0.0, 1.0], if 1.0, project intr into apt, 
+        # if 0.0, project apt into intr
+        # if between value, use random coin flip to decide which one to project
+
+        if dot < 0:
+            # grad_apt의 norm^2 계산
+            norm_apt = 0.0
+
+            project_ratio = np.random.binomial(1, self.becl_cic_ratio)
+            if project_ratio == 1:
+                for g_a in grad_apt:
+                    if g_a is not None:
+                        norm_apt += (g_a * g_a).sum()
+
+                norm_apt = norm_apt + 1e-12  # 분모가 0이 되지 않도록 작은 값 더하기
+                proj_scale = dot / norm_apt
+
+                # grad_intr <- grad_intr - ( (grad_intr·grad_apt) / ||grad_apt||^2 ) * grad_apt
+                for i, (g_i, g_a) in enumerate(zip(grad_intr, grad_apt)):
+                    if g_i is not None and g_a is not None:
+                        grad_intr[i] = g_i - proj_scale * g_a
+            else:
+                for g_i in grad_intr:
+                    if g_i is not None:
+                        norm_apt += (g_i * g_i).sum()
+
+                norm_apt = norm_apt + 1e-12
+                proj_scale = dot / norm_apt
+
+                for i, (g_i, g_a) in enumerate(zip(grad_intr, grad_apt)):
+                    if g_i is not None and g_a is not None:
+                        grad_apt[i] = g_a - proj_scale * g_i
+
+        # 8) 최종 gradient = grad_intr + grad_apt
+        final_grad = []
+        for g_i, g_a in zip(grad_intr, grad_apt):
+            if g_i is None and g_a is None:
+                final_grad.append(None)
+            elif g_i is None:
+                final_grad.append(g_a)
+            elif g_a is None:
+                final_grad.append(g_i)
+            else:
+                final_grad.append(g_i + g_a)
+
+        self.critic_opt.zero_grad(set_to_none=True)
+
+        # critic 파라미터에 최종 gradient 주입
+        for p, g in zip(self.critic.parameters(), final_grad):
+            if p.requires_grad and g is not None:
+                p.grad = g
+
+        # 실제 업데이트
+        self.critic_opt.step()
+
+        if self.use_tb or self.use_wandb:
+            metrics["critic_loss_intr"] = critic_loss_intr.item()
+            metrics["critic_loss_apt"] = critic_loss_apt.item()
+
+        return metrics
 
     def update_critic(self, obs, action, reward, discount, next_obs, step):
         metrics = dict()
