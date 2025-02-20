@@ -285,6 +285,7 @@ class Workspace:
         snapshot_dir = self.work_dir / Path(self.cfg.snapshot_dir)
         snapshot_dir.mkdir(exist_ok=True, parents=True)
         snapshot = snapshot_dir / f"snapshot_{self.global_frame}.pt"
+        print(snapshot)
         keys_to_save = ["agent", "_global_step", "_global_episode"]
         payload = {k: self.__dict__[k] for k in keys_to_save}
         with snapshot.open("wb") as f:
@@ -304,7 +305,6 @@ def main(cfg):
         workspace.train()
     except KeyboardInterrupt:
         print("interrupted")
-    finally:
         workspace.save_snapshot()
         exit()
 
