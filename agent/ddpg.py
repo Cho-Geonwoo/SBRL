@@ -14,7 +14,7 @@ class Encoder(nn.Module):
         super().__init__()
 
         assert len(obs_shape) == 3
-        self.repr_dim = 32 * 35 * 35 
+        self.repr_dim = 32 * 35 * 35
 
         self.convnet = nn.Sequential(
             nn.Conv2d(obs_shape[0], 32, 3, stride=2),
@@ -281,7 +281,7 @@ class DDPGAgent:
             if g_i is not None and g_a is not None:
                 dot += (g_i * g_a).sum()
 
-        # self.becl_cic_ratio is [0.0, 1.0], if 1.0, project intr into apt, 
+        # self.becl_cic_ratio is [0.0, 1.0], if 1.0, project intr into apt,
         # if 0.0, project apt into intr
         # if between value, use random coin flip to decide which one to project
 
