@@ -297,7 +297,7 @@ def main(cfg):
 
     workspace = W(cfg)
     snapshot = Path(cfg.snapshot)
-    if snapshot.exists():
+    if snapshot.exists() and not snapshot.is_dir():
         print(f"resuming: {snapshot}")
         workspace.load_snapshot()
     try:
