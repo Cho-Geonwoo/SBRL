@@ -495,3 +495,8 @@ class SBRLV10Agent(DDPGAgent):
         )
 
         return metrics
+
+    def init_from(self, other):
+        super().init_from(other)
+        self.becl.load_state_dict(other.becl.state_dict())
+        self.cic.load_state_dict(other.cic.state_dict())

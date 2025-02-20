@@ -268,6 +268,18 @@ class Workspace:
             # self.train_video_recorder.record(time_step.observation)
             episode_step += 1
             self._global_step += 1
+    
+        self.save_snapshot()
+
+    def load_snapshot(self):
+        snapshot_file = Path(self.cfg.snapshot)
+        with snapshot_file.open("rb") as f:
+            payload = torch.load(f, map_location=self.cfg.device)
+        self.agent.init_from(payload["agent"])
+        self.cfg.num_seed_frames = payload["_global_step"] / 10
+        self.cfg.num_train_frames -= payload["_global_step"] + self.cfg.num_seed_frames
+
+        self._global_episode = payload["_global_episode"]
 
     def save_snapshot(self):
         snapshot_dir = self.work_dir / Path(self.cfg.snapshot_dir)
@@ -283,14 +295,17 @@ class Workspace:
 def main(cfg):
     from pretrain import Workspace as W
 
-    root_dir = Path.cwd()
     workspace = W(cfg)
-    snapshot = root_dir / "snapshot.pt"
+    snapshot = Path(cfg.snapshot)
     if snapshot.exists():
         print(f"resuming: {snapshot}")
         workspace.load_snapshot()
-    workspace.train()
-
+    try:
+        workspace.train()
+    except KeyboardInterrupt:
+        print("interrupted")
+    finally:
+        workspace.save_snapshot()
 
 if __name__ == "__main__":
     main()
