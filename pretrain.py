@@ -306,6 +306,7 @@ def main(cfg):
         print("interrupted")
     finally:
         workspace.save_snapshot()
+        exit()
 
 if __name__ == "__main__":
     main()
