@@ -1,6 +1,6 @@
 # @package agent
-_target_: agent.sbrlv9.SBRLV9Agent
-name: sbrlv9
+_target_: agent.sbrlv11.SBRLV11Agent
+name: sbrlv11
 reward_free: ${reward_free}
 obs_type: ??? # to be specified later
 obs_shape: ??? # to be specified later
