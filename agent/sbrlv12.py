@@ -309,6 +309,8 @@ class SBRLV9Agent(DDPGAgent):
             self.obs_dim - self.skill_dim, self.skill_dim, kwargs["hidden_dim"]
         ).to(self.device)
 
+        self.Lambda = nn.Parameter(torch.eye(skill_dim, device=self.device))
+
         self.rnd = RND(
             self.obs_dim - self.skill_dim,
             self.hidden_dim,
@@ -321,7 +323,7 @@ class SBRLV9Agent(DDPGAgent):
 
         # optimizers
         self.rnd_opt = torch.optim.Adam(self.rnd.parameters(), lr=self.lr)
-        self.becl_opt = torch.optim.Adam(self.becl.parameters(), lr=self.lr)
+        self.becl_opt = torch.optim.Adam(list(self.becl.parameters()) + [self.Lambda], lr=self.lr)
 
         self.cic = CIC(
             self.obs_dim - skill_dim, skill_dim, kwargs["hidden_dim"], project_skill
@@ -362,7 +364,7 @@ class SBRLV9Agent(DDPGAgent):
     def update_contrastive(self, state, skills):
         metrics = dict()
         features = self.becl(state)
-        logits = self.compute_info_nce_loss(features, skills)
+        logits = self.compute_ani_nce_loss(features, skills, self.Lambda)
         loss = logits.mean()
 
         self.becl_opt.zero_grad()
@@ -382,13 +384,44 @@ class SBRLV9Agent(DDPGAgent):
 
         # compute contrastive reward
         features = self.becl(state)
-        contrastive_reward = torch.exp(-self.compute_info_nce_loss(features, skills))
+        contrastive_reward = torch.exp(-self.compute_ani_nce_loss(features, skills, self.Lambda))
 
         intr_reward = contrastive_reward
         if self.use_tb or self.use_wandb:
             metrics["contrastive_reward"] = contrastive_reward.mean().item()
 
         return intr_reward
+
+    def compute_ani_nce_loss(self, features, skills, Lambda=None):
+        labels = torch.argmax(skills, dim=-1)  # (b,)
+        labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).long()  # (b, b)
+        labels = labels.to(self.device)
+
+        b, c = features.shape
+        diff = features.unsqueeze(1) - features.unsqueeze(0)  # (b, b, c)
+        if Lambda is None:
+            dist_matrix = (diff ** 2).sum(dim=-1)  # (b, b) -> Euclidean squared distance
+        else:
+            diff_L = torch.matmul(diff, Lambda)      # (b, b, c)
+            dist_matrix = (diff_L * diff).sum(dim=-1)  # (b, b)
+
+        mask = torch.eye(b, dtype=torch.bool).to(self.device)
+        dist_matrix = dist_matrix[~mask].view(b, -1)  # (b, b-1)
+        labels = labels[~mask].view(b, -1)            # (b, b-1)
+
+        dist_matrix = dist_matrix / self.temperature
+
+        exp_neg_dist = torch.exp(-dist_matrix)  # (b, b-1)
+
+        pick_one_positive_sample_idx = torch.argmax(labels, dim=-1, keepdim=True)
+        pick_one_positive_sample_idx = torch.zeros_like(labels).scatter_(-1, pick_one_positive_sample_idx, 1)
+
+        positives = torch.sum(exp_neg_dist * pick_one_positive_sample_idx, dim=-1, keepdim=True)  # (b, 1)
+        negatives = torch.sum(exp_neg_dist, dim=-1, keepdim=True)  # (b, 1)
+
+        eps = torch.as_tensor(1e-6).to(self.device)
+        loss = -torch.log(positives / (negatives + eps) + eps)  # (b, 1)
+        return loss
 
     def compute_info_nce_loss(self, features, skills):
         # features: (b,c), skills :(b, skill_dim)
