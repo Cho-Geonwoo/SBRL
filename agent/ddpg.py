@@ -234,7 +234,15 @@ class DDPGAgent:
         return action.cpu().detach().numpy()[0]
 
     def update_critic_with_gradient_conflict_solver(
-        self, obs, action, intr_reward, apt_reward, discount, next_obs, step
+        self,
+        obs,
+        action,
+        intr_reward,
+        apt_reward,
+        discount,
+        next_obs,
+        step,
+        update=True,
     ):
         metrics = dict()
 
@@ -281,11 +289,13 @@ class DDPGAgent:
             if g_i is not None and g_a is not None:
                 dot += (g_i * g_a).sum()
 
+        metrics["gradient_dot"] = dot
+
         # self.becl_cic_ratio is [0.0, 1.0], if 1.0, project intr into apt,
         # if 0.0, project apt into intr
         # if between value, use random coin flip to decide which one to project
 
-        if dot < 0:
+        if dot < 0 and update:
             # grad_apt의 norm^2 계산
             norm_apt = 0.0
 
@@ -326,19 +336,20 @@ class DDPGAgent:
             else:
                 final_grad.append(g_i + g_a)
 
-        self.critic_opt.zero_grad(set_to_none=True)
+        if update:
+            self.critic_opt.zero_grad(set_to_none=True)
 
-        # critic 파라미터에 최종 gradient 주입
-        for p, g in zip(self.critic.parameters(), final_grad):
-            if p.requires_grad and g is not None:
-                p.grad = g
+            # critic 파라미터에 최종 gradient 주입
+            for p, g in zip(self.critic.parameters(), final_grad):
+                if p.requires_grad and g is not None:
+                    p.grad = g
 
-        # 실제 업데이트
-        self.critic_opt.step()
+            # 실제 업데이트
+            self.critic_opt.step()
 
-        if self.use_tb or self.use_wandb:
-            metrics["critic_loss_intr"] = critic_loss_intr.item()
-            metrics["critic_loss_apt"] = critic_loss_apt.item()
+            if self.use_tb or self.use_wandb:
+                metrics["critic_loss_intr"] = critic_loss_intr.item()
+                metrics["critic_loss_apt"] = critic_loss_apt.item()
 
         return metrics
 

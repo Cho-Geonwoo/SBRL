@@ -110,51 +110,6 @@ class APTArgs:
 rms = RMS()
 
 
-class RewardWeightScheduler:
-    def __init__(self, becl_period=50, becl_duration=25, cic_bootstrap_duration=100):
-        self._apt_weight = torch.tensor(0.0)
-        self._becl_weight = torch.tensor(0.0)
-
-        self._step = 0
-        self._becl_period = becl_period
-        self._turn_off_becl = True
-        self._becl_count = 0
-        self._becl_duration = becl_duration
-        self._cic_bootstrap_duration = cic_bootstrap_duration
-
-    def update(self, apt_reward, becl_reward):
-        self.update_with_period(apt_reward, becl_reward)
-
-    def update_with_period(self, apt_reward, becl_reward):
-        if self._step == 0:
-            self._apt_weight = 1
-            self._becl_weight = 0
-
-        self._step += 1
-        self._becl_count += 1
-
-        if self._becl_count % self._becl_period == 0:
-            self._becl_count = 0
-            self._turn_off_becl = False
-            self._becl_weight = 1 - self._becl_weight
-
-        if not self._turn_off_becl and self._becl_count == self._becl_duration:
-            self._becl_weight = 0
-            self._becl_count = 0
-            self._turn_off_becl = True
-
-        if self._step < self._cic_bootstrap_duration:
-            self._becl_weight = 0
-
-    @property
-    def apt_weight(self):
-        return self._apt_weight
-
-    @property
-    def becl_weight(self):
-        return self._becl_weight
-
-
 def compute_apt_reward(source, target, args):
 
     b1, b2 = source.size(0), target.size(0)
@@ -214,7 +169,7 @@ class BECL(nn.Module):
         return features
 
 
-class SBRLV10Agent(DDPGAgent):
+class SBRLV1_1Agent(DDPGAgent):
     def __init__(
         self,
         update_skill_every_step,
@@ -226,9 +181,6 @@ class SBRLV10Agent(DDPGAgent):
         skill,
         project_skill,
         update_rep,
-        becl_period,
-        becl_duration,
-        cic_bootstrap_duration,
         **kwargs
     ):
         self.skill_dim = skill_dim
@@ -251,12 +203,8 @@ class SBRLV10Agent(DDPGAgent):
             self.obs_dim - self.skill_dim, self.skill_dim, kwargs["hidden_dim"]
         ).to(kwargs["device"])
 
-        self.Lambda = nn.Parameter(torch.eye(skill_dim, device=self.device))
-
         # optimizers
-        self.becl_opt = torch.optim.Adam(
-            list(self.becl.parameters()) + [self.Lambda], lr=self.lr
-        )
+        self.becl_opt = torch.optim.Adam(self.becl.parameters(), lr=self.lr)
 
         self.cic = CIC(
             self.obs_dim - skill_dim, skill_dim, kwargs["hidden_dim"], project_skill
@@ -264,11 +212,6 @@ class SBRLV10Agent(DDPGAgent):
 
         # optimizers
         self.cic_optimizer = torch.optim.Adam(self.cic.parameters(), lr=self.lr)
-        self.reward_weight_scheduler = RewardWeightScheduler(
-            becl_period,
-            becl_duration,
-            cic_bootstrap_duration,
-        )
 
         self.cic.train()
 
@@ -295,7 +238,7 @@ class SBRLV10Agent(DDPGAgent):
     def update_contrastive(self, state, skills):
         metrics = dict()
         features = self.becl(state)
-        logits = self.compute_ani_nce_loss(features, skills, self.Lambda)
+        logits = self.compute_info_nce_loss(features, skills)
         loss = logits.mean()
 
         self.becl_opt.zero_grad()
@@ -315,9 +258,7 @@ class SBRLV10Agent(DDPGAgent):
 
         # compute contrastive reward
         features = self.becl(state)
-        contrastive_reward = torch.exp(
-            -self.compute_ani_nce_loss(features, skills, self.Lambda)
-        )
+        contrastive_reward = torch.exp(-self.compute_info_nce_loss(features, skills))
 
         intr_reward = contrastive_reward
         if self.use_tb or self.use_wandb:
@@ -358,41 +299,6 @@ class SBRLV10Agent(DDPGAgent):
         eps = torch.as_tensor(1e-6)
         loss = -torch.log(positives / (negatives + eps) + eps)  # (b,1)
 
-        return loss
-
-    def compute_ani_nce_loss(self, features, skills, Lambda=None):
-        labels = torch.argmax(skills, dim=-1)  # (b,)
-        labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).long()  # (b, b)
-        labels = labels.to(self.device)
-
-        b, c = features.shape
-        diff = features.unsqueeze(1) - features.unsqueeze(0)  # (b, b, c)
-        if Lambda is None:
-            dist_matrix = (diff**2).sum(dim=-1)  # (b, b) -> Euclidean squared distance
-        else:
-            diff_L = torch.matmul(diff, Lambda)  # (b, b, c)
-            dist_matrix = (diff_L * diff).sum(dim=-1)  # (b, b)
-
-        mask = torch.eye(b, dtype=torch.bool).to(self.device)
-        dist_matrix = dist_matrix[~mask].view(b, -1)  # (b, b-1)
-        labels = labels[~mask].view(b, -1)  # (b, b-1)
-
-        dist_matrix = dist_matrix / self.temperature
-
-        exp_neg_dist = torch.exp(-dist_matrix)  # (b, b-1)
-
-        pick_one_positive_sample_idx = torch.argmax(labels, dim=-1, keepdim=True)
-        pick_one_positive_sample_idx = torch.zeros_like(labels).scatter_(
-            -1, pick_one_positive_sample_idx, 1
-        )
-
-        positives = torch.sum(
-            exp_neg_dist * pick_one_positive_sample_idx, dim=-1, keepdim=True
-        )  # (b, 1)
-        negatives = torch.sum(exp_neg_dist, dim=-1, keepdim=True)  # (b, 1)
-
-        eps = torch.as_tensor(1e-6).to(self.device)
-        loss = -torch.log(positives / (negatives + eps) + eps)  # (b, 1)
         return loss
 
     def compute_cpc_loss(self, obs, next_obs, skill):
@@ -455,6 +361,16 @@ class SBRLV10Agent(DDPGAgent):
         if self.reward_free:
             metrics.update(self.update_contrastive(next_obs, skill))
 
+            # for _ in range(self.contrastive_update_rate - 1):
+            #     batch = next(replay_iter)
+            #     obs, action, reward, discount, next_obs, skill = utils.to_torch(
+            #         batch, self.device
+            #     )
+            #     obs = self.aug_and_encode(obs)
+            #     next_obs = self.aug_and_encode(next_obs)
+
+            #     metrics.update(self.update_contrastive(next_obs, skill))
+
             if self.update_rep:
                 metrics.update(self.update_cic(obs, skill, next_obs, step))
 
@@ -462,15 +378,9 @@ class SBRLV10Agent(DDPGAgent):
                 intr_reward = self.compute_intr_reward(skill, next_obs, metrics)
                 apt_reward = self.compute_apt_reward(next_obs, next_obs)
 
-            self.reward_weight_scheduler.update(intr_reward, apt_reward)
-            apt_reward = apt_reward * self.reward_weight_scheduler.apt_weight
-            intr_reward = intr_reward * self.reward_weight_scheduler.becl_weight
-
             if self.use_tb or self.use_wandb:
                 metrics["intr_reward"] = intr_reward.mean().item()
                 metrics["apt_reward"] = apt_reward.mean().item()
-                metrics["apt_weight"] = self.reward_weight_scheduler.apt_weight
-                metrics["becl_weight"] = self.reward_weight_scheduler.becl_weight
 
             reward = intr_reward + self.alpha * apt_reward
         else:
@@ -486,6 +396,19 @@ class SBRLV10Agent(DDPGAgent):
         # extend observations with skill
         obs = torch.cat([obs, skill], dim=1)
         next_obs = torch.cat([next_obs, skill], dim=1)
+
+        metrics.update(
+            self.update_critic_with_gradient_conflict_solver(
+                obs,
+                action,
+                intr_reward,
+                apt_reward,
+                discount,
+                next_obs,
+                step,
+                update=False,
+            )
+        )
 
         # update critic
         metrics.update(
@@ -503,8 +426,3 @@ class SBRLV10Agent(DDPGAgent):
         )
 
         return metrics
-
-    def init_from(self, other):
-        super().init_from(other)
-        self.becl.load_state_dict(other.becl.state_dict())
-        self.cic.load_state_dict(other.cic.state_dict())

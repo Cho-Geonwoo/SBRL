@@ -323,7 +323,9 @@ class SBRLV12Agent(DDPGAgent):
 
         # optimizers
         self.rnd_opt = torch.optim.Adam(self.rnd.parameters(), lr=self.lr)
-        self.becl_opt = torch.optim.Adam(list(self.becl.parameters()) + [self.Lambda], lr=self.lr)
+        self.becl_opt = torch.optim.Adam(
+            list(self.becl.parameters()) + [self.Lambda], lr=self.lr
+        )
 
         self.cic = CIC(
             self.obs_dim - skill_dim, skill_dim, kwargs["hidden_dim"], project_skill
@@ -384,7 +386,9 @@ class SBRLV12Agent(DDPGAgent):
 
         # compute contrastive reward
         features = self.becl(state)
-        contrastive_reward = torch.exp(-self.compute_ani_nce_loss(features, skills, self.Lambda))
+        contrastive_reward = torch.exp(
+            -self.compute_ani_nce_loss(features, skills, self.Lambda)
+        )
 
         intr_reward = contrastive_reward
         if self.use_tb or self.use_wandb:
@@ -400,23 +404,27 @@ class SBRLV12Agent(DDPGAgent):
         b, c = features.shape
         diff = features.unsqueeze(1) - features.unsqueeze(0)  # (b, b, c)
         if Lambda is None:
-            dist_matrix = (diff ** 2).sum(dim=-1)  # (b, b) -> Euclidean squared distance
+            dist_matrix = (diff**2).sum(dim=-1)  # (b, b) -> Euclidean squared distance
         else:
-            diff_L = torch.matmul(diff, Lambda)      # (b, b, c)
+            diff_L = torch.matmul(diff, Lambda)  # (b, b, c)
             dist_matrix = (diff_L * diff).sum(dim=-1)  # (b, b)
 
         mask = torch.eye(b, dtype=torch.bool).to(self.device)
         dist_matrix = dist_matrix[~mask].view(b, -1)  # (b, b-1)
-        labels = labels[~mask].view(b, -1)            # (b, b-1)
+        labels = labels[~mask].view(b, -1)  # (b, b-1)
 
         dist_matrix = dist_matrix / self.temperature
 
         exp_neg_dist = torch.exp(-dist_matrix)  # (b, b-1)
 
         pick_one_positive_sample_idx = torch.argmax(labels, dim=-1, keepdim=True)
-        pick_one_positive_sample_idx = torch.zeros_like(labels).scatter_(-1, pick_one_positive_sample_idx, 1)
+        pick_one_positive_sample_idx = torch.zeros_like(labels).scatter_(
+            -1, pick_one_positive_sample_idx, 1
+        )
 
-        positives = torch.sum(exp_neg_dist * pick_one_positive_sample_idx, dim=-1, keepdim=True)  # (b, 1)
+        positives = torch.sum(
+            exp_neg_dist * pick_one_positive_sample_idx, dim=-1, keepdim=True
+        )  # (b, 1)
         negatives = torch.sum(exp_neg_dist, dim=-1, keepdim=True)  # (b, 1)
 
         eps = torch.as_tensor(1e-6).to(self.device)

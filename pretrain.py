@@ -268,7 +268,7 @@ class Workspace:
             # self.train_video_recorder.record(time_step.observation)
             episode_step += 1
             self._global_step += 1
-    
+
         self.save_snapshot()
 
     def load_snapshot(self):
@@ -307,6 +307,7 @@ def main(cfg):
         print("interrupted")
         workspace.save_snapshot()
         exit()
+
 
 if __name__ == "__main__":
     main()
