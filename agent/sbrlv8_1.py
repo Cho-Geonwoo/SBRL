@@ -1,3 +1,4 @@
+import copy
 import collections
 import math
 from collections import OrderedDict
@@ -12,6 +13,60 @@ from dm_env import specs
 
 import utils
 from agent.ddpg import DDPGAgent
+
+
+class RND(nn.Module):
+    def __init__(
+        self,
+        obs_dim,
+        hidden_dim,
+        rnd_rep_dim,
+        encoder,
+        aug,
+        obs_shape,
+        obs_type,
+        clip_val=5.0,
+    ):
+        super().__init__()
+        self.clip_val = clip_val
+        self.aug = aug
+
+        if obs_type == "pixels":
+            self.normalize_obs = nn.BatchNorm2d(obs_shape[0], affine=False)
+        else:
+            self.normalize_obs = nn.BatchNorm1d(obs_shape[0], affine=False)
+
+        self.predictor = nn.Sequential(
+            encoder,
+            nn.Linear(obs_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, rnd_rep_dim),
+        )
+        self.target = nn.Sequential(
+            copy.deepcopy(encoder),
+            nn.Linear(obs_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, rnd_rep_dim),
+        )
+
+        for param in self.target.parameters():
+            param.requires_grad = False
+
+        self.apply(utils.weight_init)
+
+    def forward(self, obs):
+        obs = self.aug(obs)
+        obs = self.normalize_obs(obs)
+        obs = torch.clamp(obs, -self.clip_val, self.clip_val)
+        prediction, target = self.predictor(obs), self.target(obs)
+        prediction_error = torch.square(target.detach() - prediction).mean(
+            dim=-1, keepdim=True
+        )
+        return prediction_error
 
 
 class CIC(nn.Module):
@@ -110,6 +165,62 @@ class APTArgs:
 rms = RMS()
 
 
+class RewardWeightScheduler:
+    def __init__(self, becl_period=50, becl_duration=25, cic_bootstrap_duration=100):
+        self._apt_weight = torch.tensor(0.0)
+        self._becl_weight = torch.tensor(0.0)
+        self._rnd_weight = torch.tensor(0.0)
+
+        self._step = 0
+        self._becl_period = becl_period
+        self._turn_off_becl = True
+        self._becl_count = 0
+        self._becl_duration = becl_duration
+        self._cic_bootstrap_duration = cic_bootstrap_duration
+        self._rnd_wait_duration = cic_bootstrap_duration
+
+    def update(self, apt_reward, becl_reward):
+        self.update_with_period(apt_reward, becl_reward)
+
+    def update_with_period(self, apt_reward, becl_reward):
+        if self._step == 0:
+            self._apt_weight = 1
+            self._becl_weight = 0
+
+        self._step += 1
+        self._becl_count += 1
+
+        if self._becl_count % self._becl_period == 0:
+            self._becl_count = 0
+            self._turn_off_becl = False
+            self._becl_weight = 1 - self._becl_weight
+
+        if not self._turn_off_becl and self._becl_count == self._becl_duration:
+            self._becl_weight = 0
+            self._becl_count = 0
+            self._turn_off_becl = True
+
+        if self._step < self._cic_bootstrap_duration:
+            self._becl_weight = 0
+
+        if self._step < self._rnd_wait_duration:
+            self._rnd_weight = 0
+        else:
+            self._rnd_weight = 1
+
+    @property
+    def apt_weight(self):
+        return self._apt_weight
+
+    @property
+    def becl_weight(self):
+        return self._becl_weight
+
+    @property
+    def rnd_weight(self):
+        return self._rnd_weight
+
+
 def compute_apt_reward(source, target, args):
 
     b1, b2 = source.size(0), target.size(0)
@@ -169,7 +280,7 @@ class BECL(nn.Module):
         return features
 
 
-class SBRLV1_1Agent(DDPGAgent):
+class SBRLV8_1Agent(DDPGAgent):
     def __init__(
         self,
         update_skill_every_step,
@@ -178,9 +289,13 @@ class SBRLV1_1Agent(DDPGAgent):
         contrastive_update_rate,
         temperature,
         alpha,
+        beta,
         skill,
         project_skill,
         update_rep,
+        becl_period,
+        becl_duration,
+        cic_bootstrap_duration,
         **kwargs
     ):
         self.skill_dim = skill_dim
@@ -189,6 +304,7 @@ class SBRLV1_1Agent(DDPGAgent):
         self.contrastive_update_rate = contrastive_update_rate
         self.temperature = temperature
         self.alpha = alpha
+        self.beta = beta
         # specify skill in fine-tuning stage if needed
         self.skill = int(skill) if skill >= 0 else np.random.choice(self.skill_dim)
         self.update_rep = update_rep
@@ -201,20 +317,38 @@ class SBRLV1_1Agent(DDPGAgent):
         # net
         self.becl = BECL(
             self.obs_dim - self.skill_dim, self.skill_dim, kwargs["hidden_dim"]
-        ).to(kwargs["device"])
+        ).to(self.device)
+
+        self.rnd = RND(
+            self.obs_dim - self.skill_dim,
+            self.hidden_dim,
+            self.hidden_dim,
+            self.encoder,
+            self.aug,
+            self.obs_shape,
+            self.obs_type,
+        ).to(self.device)
 
         # optimizers
         self.becl_opt = torch.optim.Adam(self.becl.parameters(), lr=self.lr)
+        self.rnd_opt = torch.optim.Adam(self.rnd.parameters(), lr=self.lr)
 
         self.cic = CIC(
             self.obs_dim - skill_dim, skill_dim, kwargs["hidden_dim"], project_skill
-        ).to(kwargs["device"])
+        ).to(self.device)
 
         # optimizers
         self.cic_optimizer = torch.optim.Adam(self.cic.parameters(), lr=self.lr)
+        self.reward_weight_scheduler = RewardWeightScheduler(
+            becl_period,
+            becl_duration,
+            cic_bootstrap_duration,
+        )
+
+        self.intrinsic_reward_rms = utils.RMS(device=self.device)
 
         self.cic.train()
-
+        self.rnd.train()
         self.becl.train()
 
     def get_meta_specs(self):
@@ -234,6 +368,21 @@ class SBRLV1_1Agent(DDPGAgent):
         if global_step % self.update_skill_every_step == 0:
             return self.init_meta()
         return meta
+
+    def update_rnd(self, obs, step):
+        metrics = dict()
+
+        prediction_error = self.rnd(obs)
+        loss = prediction_error.mean()
+
+        self.rnd_opt.zero_grad()
+        loss.backward()
+        self.rnd_opt.step()
+
+        if self.use_tb or self.use_wandb:
+            metrics["rnd_loss"] = loss.item()
+
+        return metrics
 
     def update_contrastive(self, state, skills):
         metrics = dict()
@@ -265,6 +414,12 @@ class SBRLV1_1Agent(DDPGAgent):
             metrics["contrastive_reward"] = contrastive_reward.mean().item()
 
         return intr_reward
+
+    def computer_rnd_reward(self, obs, step):
+        prediction_error = self.rnd(obs)
+        _, intr_reward_var = self.intrinsic_reward_rms(prediction_error)
+        reward = prediction_error / (torch.sqrt(intr_reward_var) + 1e-8)
+        return reward
 
     def compute_info_nce_loss(self, features, skills):
         # features: (b,c), skills :(b, skill_dim)
@@ -361,28 +516,30 @@ class SBRLV1_1Agent(DDPGAgent):
         if self.reward_free:
             metrics.update(self.update_contrastive(next_obs, skill))
 
-            # for _ in range(self.contrastive_update_rate - 1):
-            #     batch = next(replay_iter)
-            #     obs, action, reward, discount, next_obs, skill = utils.to_torch(
-            #         batch, self.device
-            #     )
-            #     obs = self.aug_and_encode(obs)
-            #     next_obs = self.aug_and_encode(next_obs)
-
-            #     metrics.update(self.update_contrastive(next_obs, skill))
-
             if self.update_rep:
                 metrics.update(self.update_cic(obs, skill, next_obs, step))
+
+            metrics.update(self.update_rnd(obs, step))
 
             with torch.no_grad():
                 intr_reward = self.compute_intr_reward(skill, next_obs, metrics)
                 apt_reward = self.compute_apt_reward(next_obs, next_obs)
+                rnd_reward = self.computer_rnd_reward(obs, step)
+
+            self.reward_weight_scheduler.update(intr_reward, apt_reward)
+            apt_reward = apt_reward * self.reward_weight_scheduler.apt_weight
+            intr_reward = intr_reward * self.reward_weight_scheduler.becl_weight
+            rnd_reward = rnd_reward * self.reward_weight_scheduler.rnd_weight
 
             if self.use_tb or self.use_wandb:
                 metrics["intr_reward"] = intr_reward.mean().item()
                 metrics["apt_reward"] = apt_reward.mean().item()
+                metrics["rnd_reward"] = rnd_reward.mean().item()
+                metrics["apt_weight"] = self.reward_weight_scheduler.apt_weight
+                metrics["becl_weight"] = self.reward_weight_scheduler.becl_weight
+                metrics["rnd_weight"] = self.reward_weight_scheduler.rnd_weight
 
-            reward = intr_reward + self.alpha * apt_reward
+            reward = intr_reward + self.alpha * apt_reward + self.beta * rnd_reward
         else:
             reward = extr_reward
 
@@ -402,7 +559,7 @@ class SBRLV1_1Agent(DDPGAgent):
                 obs,
                 action,
                 intr_reward,
-                self.alpha * apt_reward,
+                self.alpha * apt_reward + self.beta * rnd_reward,
                 discount,
                 next_obs,
                 step,
@@ -426,3 +583,9 @@ class SBRLV1_1Agent(DDPGAgent):
         )
 
         return metrics
+
+    def init_from(self, other):
+        super().init_from(other)
+        self.becl.load_state_dict(other.becl.state_dict())
+        self.rnd.load_state_dict(other.rnd.state_dict())
+        self.cic.load_state_dict(other.cic.state_dict())
