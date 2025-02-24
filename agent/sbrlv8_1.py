@@ -554,18 +554,19 @@ class SBRLV8_1Agent(DDPGAgent):
         obs = torch.cat([obs, skill], dim=1)
         next_obs = torch.cat([next_obs, skill], dim=1)
 
-        metrics.update(
-            self.update_critic_with_gradient_conflict_solver(
-                obs,
-                action,
-                intr_reward,
-                self.alpha * apt_reward + self.beta * rnd_reward,
-                discount,
-                next_obs,
-                step,
-                update=False,
+        if self.reward_free:
+            metrics.update(
+                self.update_critic_with_gradient_conflict_solver(
+                    obs,
+                    action,
+                    intr_reward,
+                    self.alpha * apt_reward + self.beta * rnd_reward,
+                    discount,
+                    next_obs,
+                    step,
+                    update=False,
+                )
             )
-        )
 
         # update critic
         metrics.update(
